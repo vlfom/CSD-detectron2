@@ -1,0 +1,16 @@
+{
+    "python.languageServer": "Pylance",
+    "python.pythonPath": "/home/ubuntu/anaconda3/envs/pytorch_latest_p37/bin/python",
+    "terminal.integrated.env.linux": {
+        "PYTHONPATH": "/home/ubuntu/CSD-detectron2"
+    },
+    "python.autoComplete.extraPaths": [
+        "/home/ubuntu/CSD-detectron2"
+    ],
+    "python.formatting.provider": "black",
+    "python.linting.pylintEnabled": true,
+    "python.linting.pylintArgs": [
+        "--enable=W0614"
+    ],
+    "editor.formatOnSave": true,
+}
