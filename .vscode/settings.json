@@ -13,4 +13,7 @@
         "--enable=W0614"
     ],
     "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+        "source.organizeImports": true
+    }
 }

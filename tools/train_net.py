@@ -16,16 +16,17 @@ def setup(args):
     cfg.merge_from_file(args.config_file)  # Extend with config from specified file
     cfg.merge_from_list(args.opts)  # Extend with config specified in args
 
-    # Sanity checks
-    # TODO: check that label & unlabel are divisible by num_gpus for multi-gpu training
-    assert (
+    assert (  # Sanity check
         cfg.SOLVER.IMS_PER_BATCH
         == cfg.SOLVER.IMG_PER_BATCH_LABEL + cfg.SOLVER.IMG_PER_BATCH_UNLABEL
     ), "Total number of images per batch must be equal to the sum of labeled and unlabeled images per batch"
 
     cfg.freeze()
+    set_global_cfg(
+        cfg
+    )  # TODO: do we need this? Hacky feature to enable global config access
+
     default_setup(cfg, args)
-    set_global_cfg(cfg)
 
     return cfg
 

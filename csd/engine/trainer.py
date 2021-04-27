@@ -7,9 +7,9 @@ class BaselineTrainer(DefaultTrainer):
     pass
 
 
-class CSDTrainer(DefaultTrainer):
+class CSDTrainer(SimpleTrainer):
 
-    # * __init__ is kept as in DefaultTrainer
+    # * __init__ is kept untouched
 
     @classmethod
     def build_train_loader(cls, cfg):

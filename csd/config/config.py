@@ -13,4 +13,9 @@ def add_csd_config(cfg):
     cfg.DATASETS.TRAIN.UNLABELED = ("voc_2012_trainval",)
     cfg.DATASETS.TEST = ("voc_2007_test",)
 
+    # Note: for the parameters below only the provided values are supported
+    # they are put here just for the reference
+    cfg.DATALOADER.SAMPLER_TRAIN = "TrainingSampler"
+    cfg.DATALOADER.ASPECT_RATIO_GROUPING = True
+
     return cfg
