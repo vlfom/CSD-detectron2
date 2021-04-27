@@ -2,12 +2,8 @@ import logging
 import operator
 
 import torch
-from detectron2.data.build import (build_batch_data_loader,
-                                   get_detection_dataset_dicts,
-                                   trivial_batch_collator,
-                                   worker_init_reset_seed)
-from detectron2.data.common import (AspectRatioGroupedDataset, DatasetFromList,
-                                    MapDataset)
+from detectron2.data.build import get_detection_dataset_dicts, worker_init_reset_seed
+from detectron2.data.common import MapDataset
 from detectron2.data.dataset_mapper import DatasetMapper
 from detectron2.data.samplers import TrainingSampler
 from detectron2.utils.comm import get_world_size
@@ -26,8 +22,13 @@ def build_ss_train_loader(cfg, mapper):
         inside the trainer loop (which is not the most optimal way though)
         - it's assumed that labeled and unlabeled datasets are two distinct
         non-overlapping datasets that can be loaded separately.
+
+    The final object that is returned is a DataLoader with infinite sampling yielding
+    a pair of batches with labeled and unlabeled images with the same aspect ratio within batch.
+    Specifically, the DataLoader yields:
+    ((labeled_images, labeled_images_x_flipped), (unlabeled_images, unlabeled_images_x_flipped)).
     """
-    # TODO: add support for splitting the same dataset e.g. using supervision %
+    # TODO: add support for splitting the same dataset e.g. based on supervision %
 
     # Wrapper for dataset loader to avoid duplicate code
     load_data_dicts = lambda x: get_detection_dataset_dicts(
@@ -115,7 +116,7 @@ def build_ss_batch_data_loader(
     )  # yield individual mapped dict
 
     label_data_loader = create_data_loader(label_dataset, label_sampler)
-    label_data_loader = create_data_loader(unlabel_dataset, unlabel_sampler)
+    unlabel_data_loader = create_data_loader(unlabel_dataset, unlabel_sampler)
 
     return AspectRatioGroupedSSDataset(
         (label_data_loader, unlabel_data_loader),
@@ -123,18 +124,51 @@ def build_ss_batch_data_loader(
     )
 
 
-class AspectRatioGroupedSSDataset(AspectRatioGroupedDataset):
-    """
-    Batch data that have similar aspect ratio together.
-    In this implementation, images whose aspect ratio < (or >) 1 will
-    be batched together.
-    This improves training speed because the images then need less padding
-    to form a batch.
+class AspectRatioGroupedSSDataset(torch.utils.data.IterableDataset):
+    """Groups images from datasets by aspect ratios, yields a tuple of instances.
 
-    It assumes the underlying dataset produces dicts with "width" and "height" keys.
-    It will then produce a list of original dicts with length = batch_size,
-    all with similar aspect ratios.
+    See `detectron2.data.common.AspectRatioGroupedDataset` for more details.
     """
 
-    def __init__(self, dataset, batch_size):
-        pass
+    def __init__(self, datasets, batch_sizes):
+        self.labeled_dataset, self.unlabeled_dataset = datasets
+        self.labeled_batch_size, self.unlabeled_batch_size = (
+            batch_sizes[0],
+            batch_sizes[1],
+        )
+        # There are two "buckets" (which could be called batches) for each type of dataset depending
+        # on whether w > h or not for each of the images, see `AspectRatioGroupedDataset`.
+        # They must be class members and not temporary variables because both buckets are filled
+        # at the same time and the first one that gets filled is yielded as a batch; the images in
+        # the unfilled bucket remain cached for the next iteration.
+        # Note: each bucket stores **pairs** of (image, image_x_flipped)
+        self._labeled_buckets, self._unlabeled_buckets = (
+            [[] for _ in range(2)],
+            [[] for _ in range(2)],
+        )
+
+    def __iter__(self):
+        def generate_batch(dataset, buckets, batch_size):
+            """Wrapper for batch generator; returns bucket_id."""
+            for d in dataset:
+                # Dataset is a DataLoader intance that yields (image, image_x_flipped)
+                # both are of the same size, so we can use d[0]
+                w, h = d[0]["width"], d[0]["height"]
+                bucket_id = 0 if w > h else 1
+                buckets[bucket_id].append(d)
+                if len(buckets[bucket_id]) == batch_size:
+                    return buckets[bucket_id]
+            # Unreachable code, raise an exception if ended up here
+            raise RuntimeError("Dataset should be of infinite size due to the sampler")
+
+        labeled_batch = generate_batch(
+            self.labeled_dataset, self._labeled_buckets, self.labeled_batch_size
+        )
+        unlabeled_batch = generate_batch(
+            self.labeled_dataset, self._labeled_buckets, self.labeled_batch_size
+        )
+
+        # Yield ((labeled_image, labeled_image_x_flipped), (unlabeled_image, unlabeled_image_x_flipped))
+        yield (labeled_batch[:], unlabeled_batch[:])
+        del labeled_batch[:]
+        del unlabeled_batch[:]
