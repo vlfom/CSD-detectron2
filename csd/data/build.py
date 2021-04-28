@@ -2,8 +2,9 @@ import logging
 import operator
 
 import torch
-from detectron2.data.build import get_detection_dataset_dicts, worker_init_reset_seed
-from detectron2.data.common import MapDataset
+from detectron2.data.build import (get_detection_dataset_dicts,
+                                   worker_init_reset_seed)
+from detectron2.data.common import AspectRatioGroupedDataset, MapDataset
 from detectron2.data.dataset_mapper import DatasetMapper
 from detectron2.data.samplers import TrainingSampler
 from detectron2.utils.comm import get_world_size
@@ -34,12 +35,8 @@ def build_ss_train_loader(cfg, mapper):
     load_data_dicts = lambda x: get_detection_dataset_dicts(
         x,
         filter_empty=cfg.DATALOADER.FILTER_EMPTY_ANNOTATIONS,
-        min_keypoints=cfg.MODEL.ROI_KEYPOINT_HEAD.MIN_KEYPOINTS_PER_IMAGE
-        if cfg.MODEL.KEYPOINT_ON
-        else 0,
-        proposal_files=cfg.DATASETS.PROPOSAL_FILES_TRAIN
-        if cfg.MODEL.LOAD_PROPOSALS
-        else None,
+        min_keypoints=0,
+        proposal_files=None,
     )
 
     # Load metadata for labeled and unlabeled datasets
@@ -48,11 +45,12 @@ def build_ss_train_loader(cfg, mapper):
 
     # Map metadata into actual objects (note: data augmentations also take place here)
     if mapper is None:
-        mapper = DatasetMapper.from_config(cfg, True)
+        # Construct mapper from configuration file (using @configurable decorator, see its `from_config()`)
+        mapper = DatasetMapper(cfg, True)
     labeled_dataset = MapDataset(labeled_dataset_dicts, mapper)
     unlabeled_dataset = MapDataset(unlabeled_dataset_dicts, mapper)
 
-    # Boilerplate code
+    # Define data samplers
     assert (
         cfg.DATALOADER.SAMPLER_TRAIN == "TrainingSampler"
     ), "Unsupported training sampler: {}".format(cfg.DATALOADER.SAMPLER_TRAIN)
@@ -75,7 +73,7 @@ def build_ss_batch_data_loader(
     total_batch_size_label,
     total_batch_size_unlabel,
     *,
-    aspect_ratio_grouping=False,
+    aspect_ratio_grouping=True,
     num_workers=0
 ):
     """Instantiates two data loaders based on provided metadata and wraps them into a single loader.
@@ -124,7 +122,7 @@ def build_ss_batch_data_loader(
     )
 
 
-class AspectRatioGroupedSSDataset(torch.utils.data.IterableDataset):
+class AspectRatioGroupedSSDataset(AspectRatioGroupedDataset):
     """Groups images from datasets by aspect ratios, yields a tuple of instances.
 
     See `detectron2.data.common.AspectRatioGroupedDataset` for more details.

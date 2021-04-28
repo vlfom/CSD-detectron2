@@ -1,68 +1,47 @@
 import copy
-import logging
-import numpy as np
-from PIL import Image
-import torch
 
 import detectron2.data.detection_utils as utils
 import detectron2.data.transforms as T
+import numpy as np
+import torch
 from detectron2.data.dataset_mapper import DatasetMapper
 
-class CSDDatasetMapper(DatasetMapper):
-    """Produces original image and its flipper version.
 
-    This customized mapper flips the provided image and returns original
-    image along with its flipped clone (for CSD loss).
+class CSDDatasetMapper(DatasetMapper):
+    """Yields augmented image and its flipped version.
+
+    This customized mapper extends the default mapper (that applies ResizeShortestEdge and
+    RandomFlip, see `detectron2.data.detection_utils.build_augmentation`) by additionally
+    flipping the resulting image; it returns the image augmented in a default way along with its
+    flipped version (for the CSD loss).
+    The `__call__` method is a straightforward extension of the parent's one, most code is
+    taken from there. See the `DatasetMapper` for more details.
     """
 
-    def __init__(self, cfg, is_train=True):
-        self.augmentation = utils.build_augmentation(cfg, is_train)
-        # include crop into self.augmentation
-        if cfg.INPUT.CROP.ENABLED and is_train:
-            self.augmentation.insert(
-                0, T.RandomCrop(cfg.INPUT.CROP.TYPE, cfg.INPUT.CROP.SIZE)
-            )
-            logging.getLogger(__name__).info(
-                "Cropping used in training: " + str(self.augmentation[0])
-            )
-            self.compute_tight_boxes = True
-        else:
-            self.compute_tight_boxes = False
-        self.strong_augmentation = build_strong_augmentation(cfg, is_train)
-
-        # fmt: off
-        self.img_format = cfg.INPUT.FORMAT
-        self.mask_on = cfg.MODEL.MASK_ON
-        self.mask_format = cfg.INPUT.MASK_FORMAT
-        self.keypoint_on = cfg.MODEL.KEYPOINT_ON
-        self.load_proposals = cfg.MODEL.LOAD_PROPOSALS
-        # fmt: on
-        if self.keypoint_on and is_train:
-            self.keypoint_hflip_indices = utils.create_keypoint_hflip_indices(
-                cfg.DATASETS.TRAIN
-            )
-        else:
-            self.keypoint_hflip_indices = None
-
-        if self.load_proposals:
-            self.proposal_min_box_size = cfg.MODEL.PROPOSAL_GENERATOR.MIN_SIZE
-            self.proposal_topk = (
-                cfg.DATASETS.PRECOMPUTED_PROPOSAL_TOPK_TRAIN
-                if is_train
-                else cfg.DATASETS.PRECOMPUTED_PROPOSAL_TOPK_TEST
-            )
-        self.is_train = is_train
-
     def __call__(self, dataset_dict):
-        """
+        """Loads image & attributes into the dict, returns a pair - for the original and the flipped ones.
+
         Args:
             dataset_dict (dict): Metadata of one image, in Detectron2 Dataset format.
+            See full list of keys here: https://detectron2.readthedocs.io/en/latest/tutorials/datasets.html
 
         Returns:
-            dict: a format that builtin models in detectron2 accept
+            tuple(dict, dict): a tuple where the first dict contains the data for the image augmented in a
+            default way, and the second dict contains the same image but x-flipped
+
+        Most of code comes from the original `__call__`. The only difference is the last few lines of code.
+        There, the list of transforms is extended with an additional x-flip and its applied
+        to the image. Note that it may happen that the resulting transforms list will have two x-flips
+        (which is effectively no flip) and one may reason we could simply keep the original image untouched
+        and flip its copy. However, we want to keep things as it is because only the original image (in the first
+        dict) is used for the supervised training and the x-flipped image is used only for CSD loss. So if
+        the original image would never get x-flipped, the model effectively will never be trained on x-flipped
+        images.
         """
+
+        # Load the image (D2's original code)
         dataset_dict = copy.deepcopy(dataset_dict)  # it will be modified by code below
-        image = utils.read_image(dataset_dict["file_name"], format=self.img_format)
+        image = utils.read_image(dataset_dict["file_name"], format=self.image_format)
         utils.check_image_size(dataset_dict, image)
 
         if "sem_seg_file_name" in dataset_dict:
@@ -72,72 +51,87 @@ class CSDDatasetMapper(DatasetMapper):
         else:
             sem_seg_gt = None
 
-        aug_input = T.StandardAugInput(image, sem_seg=sem_seg_gt)
-        transforms = aug_input.apply_augmentations(self.augmentation)
-        image_weak_aug, sem_seg_gt = aug_input.image, aug_input.sem_seg
-        image_shape = image_weak_aug.shape[:2]  # h, w
+        def apply_image_augmentations(image, dataset_dict, sem_seg_gt, augmentations):
+            """Applies given augmentation to the given image and its attributes (segm, instances, etc).
 
-        if sem_seg_gt is not None:
-            dataset_dict["sem_seg"] = torch.as_tensor(sem_seg_gt.astype("long"))
+            Almost no changes from D2's original code (apart from erasing non-relevant portions, e.g. for
+            keypoints), just wrapped it in a function to avoid duplicate code."""
 
-        if self.load_proposals:
-            utils.transform_proposals(
-                dataset_dict,
-                image_shape,
-                transforms,
-                proposal_topk=self.proposal_topk,
-                min_box_size=self.proposal_min_box_size,
+            aug_input = T.AugInput(image, sem_seg=sem_seg_gt)
+            transforms = augmentations(aug_input)
+            image, sem_seg_gt = aug_input.image, aug_input.sem_seg
+
+            image_shape = image.shape[:2]  # h, w
+            # Pytorch's dataloader is efficient on torch.Tensor due to shared-memory,
+            # but not efficient on large generic data structures due to the use of pickle & mp.Queue.
+            # Therefore it's important to use torch.Tensor.
+            dataset_dict["image"] = torch.as_tensor(
+                np.ascontiguousarray(image.transpose(2, 0, 1))
             )
+            if sem_seg_gt is not None:
+                dataset_dict["sem_seg"] = torch.as_tensor(sem_seg_gt.astype("long"))
 
-        if not self.is_train:
-            dataset_dict.pop("annotations", None)
-            dataset_dict.pop("sem_seg_file_name", None)
-            return dataset_dict
+            if not self.is_train:
+                dataset_dict.pop("annotations", None)
+                dataset_dict.pop("sem_seg_file_name", None)
+                return dataset_dict
 
-        if "annotations" in dataset_dict:
-            for anno in dataset_dict["annotations"]:
-                if not self.mask_on:
-                    anno.pop("segmentation", None)
-                if not self.keypoint_on:
-                    anno.pop("keypoints", None)
+            if "annotations" in dataset_dict:
+                for anno in dataset_dict["annotations"]:
+                    if not self.use_instance_mask:
+                        anno.pop("segmentation", None)
+                    if not self.use_keypoint:
+                        anno.pop("keypoints", None)
 
-            annos = [
-                utils.transform_instance_annotations(
-                    obj,
-                    transforms,
-                    image_shape,
-                    keypoint_hflip_indices=self.keypoint_hflip_indices,
+                annos = [
+                    utils.transform_instance_annotations(
+                        obj,
+                        transforms,
+                        image_shape,
+                        keypoint_hflip_indices=self.keypoint_hflip_indices,
+                    )
+                    for obj in dataset_dict.pop("annotations")
+                    if obj.get("iscrowd", 0) == 0
+                ]
+                instances = utils.annotations_to_instances(
+                    annos, image_shape, mask_format=self.instance_mask_format
                 )
-                for obj in dataset_dict.pop("annotations")
-                if obj.get("iscrowd", 0) == 0
-            ]
-            instances = utils.annotations_to_instances(
-                annos, image_shape, mask_format=self.mask_format
-            )
 
-            if self.compute_tight_boxes and instances.has("gt_masks"):
-                instances.gt_boxes = instances.gt_masks.get_bounding_boxes()
+                # After transforms such as cropping are applied, the bounding box may no longer
+                # tightly bound the object. As an example, imagine a triangle object
+                # [(0,0), (2,0), (0,2)] cropped by a box [(1,0),(2,2)] (XYXY format). The tight
+                # bounding box of the cropped triangle should be [(1,0),(2,1)], which is not equal to
+                # the intersection of original bounding box and the cropping box.
+                if self.recompute_boxes:
+                    instances.gt_boxes = instances.gt_masks.get_bounding_boxes()
+                dataset_dict["instances"] = utils.filter_empty_instances(instances)
 
-            bboxes_d2_format = utils.filter_empty_instances(instances)
-            dataset_dict["instances"] = bboxes_d2_format
+            return dataset_dict, transforms
 
-        # apply strong augmentation
-        # We use torchvision augmentation, which is not compatiable with
-        # detectron2, which use numpy format for images. Thus, we need to
-        # convert to PIL format first.
-
-        #! save strong augmentation
-        image_pil = Image.fromarray(image_weak_aug.astype("uint8"), "RGB")
-        image_strong_aug = np.array(self.strong_augmentation(image_pil))
-        dataset_dict["image"] = torch.as_tensor(
-            np.ascontiguousarray(image_strong_aug.transpose(2, 0, 1))
+        # Store the copies of image and its metadata for the future x-flip
+        dataset_dict_flipped, image_flipped, sem_seg_gt_flipped = (
+            dataset_dict.copy(),
+            image.copy(),
+            sem_seg_gt.copy(),
         )
 
-        #! save weak augmentation (note, targets stay the same)
-        dataset_dict_key = copy.deepcopy(dataset_dict)
-        dataset_dict_key["image"] = torch.as_tensor(
-            np.ascontiguousarray(image_weak_aug.transpose(2, 0, 1))
+        # Augment the original image
+        original_dataset_dict, transforms = apply_image_augmentations(
+            image, dataset_dict, sem_seg_gt, self.augmentations
         )
-        assert dataset_dict["image"].size(1) == dataset_dict_key["image"].size(1)
-        assert dataset_dict["image"].size(2) == dataset_dict_key["image"].size(2)
-        return (dataset_dict, dataset_dict_key)
+
+        # Extend instantiated transforms with an additional x-flip in the end; see `TransformList.`__add__`
+        transforms_w_flip = transforms + T.RandomFlip(
+            prob=1.0,
+            horizontal=True,
+            vertical=False,
+        )
+        # Transform Transforms to Augmentations; to learn more on how they differ you can check my note here:
+        # https://www.notion.so/vlfom/How-augmentations-work-in-DatasetMapper-a4832df03489429ba04b9bc8d0e12dc6
+        augs_w_flip = T.AugmentationList(transforms_w_flip)
+        # Obtain the x-flipped data
+        flipped_dataset_dict, _ = apply_image_augmentations(
+            image_flipped, dataset_dict_flipped, sem_seg_gt_flipped, augs_w_flip
+        )
+
+        return (original_dataset_dict, flipped_dataset_dict)
