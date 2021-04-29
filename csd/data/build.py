@@ -1,8 +1,7 @@
 import operator
 
 import torch
-from detectron2.data.build import (get_detection_dataset_dicts,
-                                   worker_init_reset_seed)
+from detectron2.data.build import get_detection_dataset_dicts, worker_init_reset_seed
 from detectron2.data.common import AspectRatioGroupedDataset, MapDataset
 from detectron2.data.dataset_mapper import DatasetMapper
 from detectron2.data.samplers import TrainingSampler
@@ -33,7 +32,7 @@ def build_ss_train_loader(cfg, mapper):
 
     # Wrapper for dataset loader to avoid duplicate code
     load_data_dicts = lambda x: get_detection_dataset_dicts(
-        x, filter_empty=cfg.DATALOADER.FILTER_EMPTY_ANNOTATIONS, min_keypoints=0, proposal_files=None,
+        x, filter_empty=cfg.DATALOADER.FILTER_EMPTY_ANNOTATIONS, min_keypoints=0, proposal_files=None
     )
 
     # Load metadata for labeled and unlabeled datasets
@@ -41,9 +40,6 @@ def build_ss_train_loader(cfg, mapper):
     unlabeled_dataset_dicts = load_data_dicts(cfg.DATASETS.TRAIN_UNLABELED)
 
     # Map metadata into actual objects (note: data augmentations also take place here)
-    if mapper is None:
-        # Construct mapper from configuration file (using @configurable decorator, see its `from_config()`)
-        mapper = DatasetMapper(cfg, True)
     labeled_dataset = MapDataset(labeled_dataset_dicts, mapper)
     unlabeled_dataset = MapDataset(unlabeled_dataset_dicts, mapper)
 
@@ -108,7 +104,8 @@ def build_ss_batch_data_loader(
     unlabel_data_loader = create_data_loader(unlabel_dataset, unlabel_sampler)
 
     return AspectRatioGroupedSSDataset(
-        (label_data_loader, unlabel_data_loader), (batch_size_label, batch_size_unlabel),
+        (label_data_loader, unlabel_data_loader),
+        (batch_size_label, batch_size_unlabel),
     )
 
 
@@ -131,31 +128,31 @@ class AspectRatioGroupedSSDataset(AspectRatioGroupedDataset):
             [[] for _ in range(2)],
             [[] for _ in range(2)],
         )
-        self.logger = setup_logger(name=__name__)  # TODO: remove all logging from here
 
     def __iter__(self):
-        self.logger.debug("__iter__ was called on the dataset")
+        # Note: this infinite loop was not needed in the original detectron2's implementation, however,
+        # for me in python3.7.10 without this I kept getting `StopIteration`
+        while True:
 
-        def generate_batch(dataset, buckets, batch_size):
-            """Wrapper for batch generator; returns bucket_id."""
-            for d in dataset:
-                # Dataset is a DataLoader intance that yields (image, image_x_flipped)
-                # both are of the same size, so we can use d[0]
-                w, h = d[0]["width"], d[0]["height"]
-                bucket_id = 0 if w > h else 1
-                buckets[bucket_id].append(d)
-                if len(buckets[bucket_id]) == batch_size:
-                    return buckets[bucket_id]
-            # Unreachable code, raise an exception if ended up here
-            raise RuntimeError("Dataset should be of infinite size due to the sampler")
+            def generate_batch(dataset, buckets, batch_size):
+                """Wrapper for batch generator; returns bucket_id."""
+                for d in dataset:
+                    # Dataset is a DataLoader intance that yields (image, image_x_flipped)
+                    # both are of the same size, so we can use d[0]
+                    w, h = d[0]["width"], d[0]["height"]
+                    bucket_id = 0 if w > h else 1
+                    buckets[bucket_id].append(d)
+                    if len(buckets[bucket_id]) == batch_size:
+                        return buckets[bucket_id]
+                # Unreachable code, raise an exception if ended up here
+                raise RuntimeError("Dataset should be of infinite size due to the sampler")
 
-        self.logger.debug("Generating labeled batch")
-        labeled_batch = generate_batch(self.labeled_dataset, self._labeled_buckets, self.labeled_batch_size)
+            labeled_batch = generate_batch(self.labeled_dataset, self._labeled_buckets, self.labeled_batch_size)
+            unlabeled_batch = generate_batch(
+                self.unlabeled_dataset, self._unlabeled_buckets, self.unlabeled_batch_size
+            )
 
-        self.logger.debug("Generating unlabeled batch")
-        unlabeled_batch = generate_batch(self.labeled_dataset, self._labeled_buckets, self.labeled_batch_size)
-
-        # Yield ([labeled_img, labeled_img_xflip], [unlabeled_im, unlabeled_img_xflip])
-        yield (labeled_batch[:], unlabeled_batch[:])
-        del labeled_batch[:]
-        del unlabeled_batch[:]
+            # Yield ([labeled_img, labeled_img_xflip], [unlabeled_im, unlabeled_img_xflip])
+            yield (labeled_batch[:], unlabeled_batch[:])
+            del labeled_batch[:]
+            del unlabeled_batch[:]
