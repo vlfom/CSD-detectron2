@@ -1,6 +1,8 @@
 """TODO: add docs
 """
 
+import csd.modeling.meta_arch
+import csd.modeling.roi_heads
 from csd.config import add_csd_config
 from csd.engine import CSDTrainerManager
 from detectron2.config import get_cfg, set_global_cfg
@@ -16,7 +18,8 @@ def setup(args):
     cfg.merge_from_list(args.opts)  # Extend with config specified in args
 
     assert (  # Sanity check
-        cfg.SOLVER.IMS_PER_BATCH == cfg.SOLVER.IMS_PER_BATCH_LABEL + cfg.SOLVER.IMS_PER_BATCH_UNLABEL
+        cfg.SOLVER.IMS_PER_BATCH
+        == cfg.SOLVER.IMS_PER_BATCH_LABELED + cfg.SOLVER.IMS_PER_BATCH_UNLABELED
     ), "Total number of images per batch must be equal to the sum of labeled and unlabeled images per batch"
 
     cfg.freeze()

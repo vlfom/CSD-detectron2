@@ -1,0 +1,26 @@
+# See `config/config.py` for details on parameters
+
+_BASE_: "../Base-RCNN-FPN.yaml"
+VERSION: 2
+MODEL:
+  META_ARCHITECTURE: "CSDGeneralizedRCNN"
+  ROI_HEADS:
+    NAME: "CSDStandardROIHeads"
+SOLVER:
+  IMS_PER_BATCH: 2
+  IMS_PER_BATCH_LABELED: 1
+  IMS_PER_BATCH_UNLABELED: 1
+  CSD_WEIGHT_SCHEDULE_RAMP_BETA: 1
+  CSD_WEIGHT_SCHEDULE_RAMP_T1: 20000
+  CSD_WEIGHT_SCHEDULE_RAMP_T2: 10000
+  CSD_WEIGHT_SCHEDULE_RAMP_T: 70000
+  CSD_WARMUP_ITERS: 1
+DATASETS:
+  TRAIN: ("voc_2007_trainval",)
+  TRAIN_UNLABELED: ("voc_2012_trainval",)
+  TEST: ("voc_2007_test",)
+INPUT:
+  MIN_SIZE_TRAIN: (300,)  # TODO: remove; # TODO: different scales in CSD-RFCN impl
+  MAX_SIZE_TRAIN: (600)  # TODO: remove
+TEST:
+  EVAL_PERIOD: 1000

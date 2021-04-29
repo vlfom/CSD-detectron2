@@ -1,2 +1,6 @@
 __pycache__
+*.pyc
 .ropeproject
+.vscode
+datasets/VOC*
+output

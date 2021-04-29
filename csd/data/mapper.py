@@ -112,7 +112,7 @@ class CSDDatasetMapper(DatasetMapper):
         dataset_dict_flipped, image_flipped, sem_seg_gt_flipped = (
             dataset_dict.copy(),
             image.copy(),
-            sem_seg_gt.copy(),
+            sem_seg_gt.copy() if sem_seg_gt else None,
         )
 
         # Augment the original image
@@ -121,11 +121,7 @@ class CSDDatasetMapper(DatasetMapper):
         )
 
         # Extend instantiated transforms with an additional x-flip in the end; see `TransformList.`__add__`
-        transforms_w_flip = transforms + T.RandomFlip(
-            prob=1.0,
-            horizontal=True,
-            vertical=False,
-        )
+        transforms_w_flip = transforms + T.HFlipTransform(image.shape[1])
         # Transform Transforms to Augmentations; to learn more on how they differ you can check my note here:
         # https://www.notion.so/vlfom/How-augmentations-work-in-DatasetMapper-a4832df03489429ba04b9bc8d0e12dc6
         augs_w_flip = T.AugmentationList(transforms_w_flip)

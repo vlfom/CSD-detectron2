@@ -4,7 +4,7 @@ import detectron2.data.transforms as T
 import torch
 from detectron2.modeling.meta_arch import GeneralizedRCNN
 from detectron2.modeling.meta_arch.build import META_ARCH_REGISTRY
-from detectron2.structures import Instances
+from detectron2.structures import Boxes, Instances
 from detectron2.utils.events import get_event_storage
 
 
@@ -110,22 +110,12 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
 
         # Labeled inputs
         labeled_csd_losses = self._csd_pass_and_get_loss(
-            labeled_im,
-            labeled_feat,
-            labeled_prop,
-            labeled_im_flip,
-            labeled_feat_flip,
-            labeled_prop_flip,
+            labeled_im, labeled_feat, labeled_prop, labeled_im_flip, labeled_feat_flip, labeled_prop_flip,
         )
 
         # Unlabeled inputs
         unlabeled_csd_losses = self._csd_pass_and_get_loss(
-            unlabeled_im,
-            unlabeled_feat,
-            unlabeled_prop,
-            unlabeled_im_flip,
-            unlabeled_feat_flip,
-            unlabeled_prop_flip,
+            unlabeled_im, unlabeled_feat, unlabeled_prop, unlabeled_im_flip, unlabeled_feat_flip, unlabeled_prop_flip,
         )
 
         # Sum up the losses (CSD classification and localization) and save to the loss dict
@@ -160,14 +150,6 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             flipped_proposals: list of flipped instances in the original format.
         """
 
-        # Lazy initalization of x-flip transform (to avoid modifying the whole `__init__`)
-        if hasattr(self, "_x_flip_transform") is None:
-            self._x_flip_transform = T.RandomFlip(
-                prob=1.0,
-                horizontal=True,
-                vertical=False,
-            )
-
         # Create a new list for proposals
         proposals_new = []
 
@@ -176,7 +158,9 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         # TODO: assert that RPN head is default one here or in config
         # Bboxes are in XYXY_ABS format from the default RPN head (see
         # `d2.modeling.anchor_generator.DefaultAnchorGenerator.generate_cell_anchors()`),
-        # so we can apply the transformation right away.
+        # so we can apply the transformation right away. The exact content of proposals
+        # (when using the default `RPN`) is defined on line 127 in `find_top_rpn_proposals`:
+        # https://github.com/facebookresearch/detectron2/blob/master/detectron2/modeling/proposal_generator/proposal_utils.py#L127
         for prop in proposals:
             im_size = prop._image_size  # Get image size
 
@@ -186,7 +170,8 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
 
             # Instantiate a transformation for the given image
             transform = T.HFlipTransform(im_size[1])
-            prop_new.proposal_boxes = transform.apply_box(prop_new.proposal_boxes)  # Apply
+            bbox_tensor = prop_new.proposal_boxes.tensor.detach().cpu()  # Detach copied bboxes
+            prop_new.proposal_boxes = Boxes(transform.apply_box(bbox_tensor))  # Apply
 
             proposals_new.append(prop_new)  # Save
 
@@ -211,8 +196,8 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         # coordinates were flipped but the order didn't change, we expect the model to return consistent scores for
         # each proposal, i.e. consistent class_scores and deltas; this is why in the code below we can simply do
         # e.g. `loss = mse(deltas - deltas_flip)`, as the matching is ensured
-        ((class_scores, deltas),) = self.roi_heads(im, feat, prop, supervised=False)
-        ((class_scores_flip, deltas_flip),) = self.roi_heads(im_flip, feat_flip, prop_flip, supervised=False)
+        ((class_scores, deltas), _) = self.roi_heads(im, feat, prop, supervised=False)
+        ((class_scores_flip, deltas_flip), _) = self.roi_heads(im_flip, feat_flip, prop_flip, supervised=False)
 
         ### Calculate loss mask
         # Ignore bboxes for which background is the class with the largest probability

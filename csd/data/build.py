@@ -11,8 +11,8 @@ from detectron2.utils.comm import get_world_size
 def build_ss_train_loader(cfg, mapper):
     """Builds a semi-supervised data loader that yields both labeled and unlabeled images.
 
-    Each batch consists of `cfg.SOLVER.IMS_PER_BATCH_LABEL` labeled and
-    `cfg.SOLVER.IMS_PER_BATCH_UNLABEL` unlabeled images, which can be modified
+    Each batch consists of `cfg.SOLVER.IMS_PER_BATCH_LABELED` labeled and
+    `cfg.SOLVER.IMS_PER_BATCH_UNLABELED` unlabeled images, which can be modified
     in `csd/config/config.py` or in a custom `configs/*.yaml` config file
     supplied to your training script.
 
@@ -31,15 +31,12 @@ def build_ss_train_loader(cfg, mapper):
 
     # Wrapper for dataset loader to avoid duplicate code
     load_data_dicts = lambda x: get_detection_dataset_dicts(
-        x,
-        filter_empty=cfg.DATALOADER.FILTER_EMPTY_ANNOTATIONS,
-        min_keypoints=0,
-        proposal_files=None,
+        x, filter_empty=cfg.DATALOADER.FILTER_EMPTY_ANNOTATIONS, min_keypoints=0, proposal_files=None,
     )
 
     # Load metadata for labeled and unlabeled datasets
-    labeled_dataset_dicts = load_data_dicts(cfg.DATASETS.TRAIN.LABELED)
-    unlabeled_dataset_dicts = load_data_dicts(cfg.DATASETS.TRAIN.UNLABELED)
+    labeled_dataset_dicts = load_data_dicts(cfg.DATASETS.TRAIN)
+    unlabeled_dataset_dicts = load_data_dicts(cfg.DATASETS.TRAIN_UNLABELED)
 
     # Map metadata into actual objects (note: data augmentations also take place here)
     if mapper is None:
@@ -58,8 +55,8 @@ def build_ss_train_loader(cfg, mapper):
     return build_ss_batch_data_loader(  # Initialize actual dataloaders
         (labeled_dataset, unlabeled_dataset),
         (labeled_sampler, unlabeled_sampler),
-        cfg.SOLVER.IMS_PER_BATCH_LABEL,
-        cfg.SOLVER.IMS_PER_BATCH_UNLABEL,
+        cfg.SOLVER.IMS_PER_BATCH_LABELED,
+        cfg.SOLVER.IMS_PER_BATCH_UNLABELED,
         aspect_ratio_grouping=cfg.DATALOADER.ASPECT_RATIO_GROUPING,
         num_workers=cfg.DATALOADER.NUM_WORKERS,
     )
@@ -109,8 +106,7 @@ def build_ss_batch_data_loader(
     unlabel_data_loader = create_data_loader(unlabel_dataset, unlabel_sampler)
 
     return AspectRatioGroupedSSDataset(
-        (label_data_loader, unlabel_data_loader),
-        (batch_size_label, batch_size_unlabel),
+        (label_data_loader, unlabel_data_loader), (batch_size_label, batch_size_unlabel),
     )
 
 

@@ -88,8 +88,8 @@ class CSDTrainer(SimpleTrainer):
 
         # Get a tuple of labeled and unlabeled instances (with their x-flipped versions)
         # Format: ([labeled_img, labeled_img_xflip], [unlabeled_im, unlabeled_img_xflip])
-        # where first list (batch) is of size `cfg.SOLVER.IMS_PER_BATCH_LABEL` and the latter
-        # is of size `cfg.SOLVER.IMS_PER_BATCH_UNLABEL`
+        # where first list (batch) is of size `cfg.SOLVER.IMS_PER_BATCH_LABELED` and the latter
+        # is of size `cfg.SOLVER.IMS_PER_BATCH_UNLABELED`
         start = time.perf_counter()
         data_labeled, data_unlabeled = next(self._data_loader_iter)
         data_time = time.perf_counter() - start

@@ -57,14 +57,14 @@ class CSDStandardROIHeads(StandardROIHeads):
 
         if self.training:
             # CSD: get raw predictions along with losses
-            predictions, losses = self._forward_box(features, proposals)
-            # Usually the original proposals used by the box head are used by the mask, keypoint
-            # heads. But when `self.train_on_pred_boxes is True`, proposals will contain boxes
-            # predicted by the box head.
-            losses.update(self._forward_mask(features, proposals))
-            losses.update(self._forward_keypoint(features, proposals))
-            # CSD: return raw predictions (class_prob and bbox_delta) along with losses
-            return predictions, losses
+            predictions, losses = self._forward_box(features, proposals, supervised)
+            if supervised:  # CSD: calculate losses only for the standard supervised pass
+                # Usually the original proposals used by the box head are used by the mask, keypoint
+                # heads. But when `self.train_on_pred_boxes is True`, proposals will contain boxes
+                # predicted by the box head.
+                losses.update(self._forward_mask(features, proposals))
+                losses.update(self._forward_keypoint(features, proposals))
+            return predictions, losses  # CSD: return both predictions and losses
         else:
             pred_instances = self._forward_box(features, proposals)
             # During inference cascaded prediction is used: the mask and keypoints heads are only
@@ -72,11 +72,13 @@ class CSDStandardROIHeads(StandardROIHeads):
             pred_instances = self.forward_with_given_boxes(features, pred_instances)
             return pred_instances, {}
 
-    def _forward_box(self, features: Dict[str, torch.Tensor], proposals: List[Instances]):
+    def _forward_box(
+        self, features: Dict[str, torch.Tensor], proposals: List[Instances], supervised: Any = True,
+    ):
         """Forward logic of the box prediction branch.
 
-        The code is taken from :meth:`StandardROIHeads._forward_box`. The only modified line
-        is the return statement; look for "CSD: ..." comment.
+        The code is taken from :meth:`StandardROIHeads._forward_box`. Additional `supervised` arg is added.
+        Look for "CSD: ..." comments to find modified lines.
         """
 
         features = [features[f] for f in self.box_in_features]
@@ -86,14 +88,17 @@ class CSDStandardROIHeads(StandardROIHeads):
         del box_features
 
         if self.training:
-            losses = self.box_predictor.losses(predictions, proposals)
-            # proposals is modified in-place below, so losses must be computed first.
-            if self.train_on_pred_boxes:
-                with torch.no_grad():
-                    pred_boxes = self.box_predictor.predict_boxes_for_gt_classes(predictions, proposals)
-                    for proposals_per_image, pred_boxes_per_image in zip(proposals, pred_boxes):
-                        proposals_per_image.proposal_boxes = Boxes(pred_boxes_per_image)
-            return predictions, losses  # CSD: add raw predictions to return
+            if supervised:  # CSD: calculate predictions and losses for standard supervised pass
+                losses = self.box_predictor.losses(predictions, proposals)
+                # proposals is modified in-place below, so losses must be computed first.
+                if self.train_on_pred_boxes:
+                    with torch.no_grad():
+                        pred_boxes = self.box_predictor.predict_boxes_for_gt_classes(predictions, proposals)
+                        for proposals_per_image, pred_boxes_per_image in zip(proposals, pred_boxes):
+                            proposals_per_image.proposal_boxes = Boxes(pred_boxes_per_image)
+            else:  # CSD: for unsupervised CSD passes no losses can exist (we don't have GTs)
+                losses = None
+            return predictions, losses
         else:
             pred_instances, _ = self.box_predictor.inference(predictions, proposals)
             return pred_instances

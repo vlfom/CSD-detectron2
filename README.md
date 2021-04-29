@@ -13,14 +13,15 @@ The code was tested on a machine with Ubuntu 18.04, CUDA 11.2, Cudnn 11.4, 4xV10
 ### Installing Detectron2
 See detectron2's [INSTALL.md](https://github.com/facebookresearch/detectron2/blob/master/INSTALL.md).
 
-### Training
+# Downloading data
 
-Training on VOC07 trainval (labeled) and VOC12 (unlabeled):
+You can use the script provided inside the `datasets/` folder to download VOC data by running `sh download_voc.sh`. Please make sure that you run this command **inside** `datasets/`, as it's important that downloaded files get extracted there (or feel free to put your data elsewhere and then set env variable `DETECTRON2_DATASETS` so detectron finds it, see [official docs](https://detectron2.readthedocs.io/en/latest/tutorials/builtin_datasets.html)).
+
+# Training
+
+Training default configuration on VOC07 trainval (labeled) and VOC12 (unlabeled):
 ```python
-python train_net.py \
-      --num-gpus 8 \
-      --config configs/coco_supervision/faster_rcnn_R_50_FPN_sup1_run1.yaml \
-       SOLVER.IMS_PER_BATCH_LABEL 16 SOLVER.IMS_PER_BATCH_UNLABEL 16
+python tools/train_net.py --num-gpus 1 --config configs/voc/default_VOC.yaml
 ```
 
 ### Evaluation
