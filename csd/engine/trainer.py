@@ -5,7 +5,8 @@ import weakref
 import numpy as np
 from csd.data import CSDDatasetMapper, build_ss_train_loader
 from detectron2.checkpoint import DetectionCheckpointer
-from detectron2.engine import DefaultTrainer, SimpleTrainer, TrainerBase, create_ddp_model
+from detectron2.engine import (DefaultTrainer, SimpleTrainer, TrainerBase,
+                               create_ddp_model)
 from detectron2.utils import comm
 from detectron2.utils.logger import setup_logger
 
@@ -41,16 +42,16 @@ class CSDTrainerManager(DefaultTrainer):
         # CSD: inject weight scheduling parameters into trainer
         (
             self._trainer.solver_csd_beta,
+            self._trainer.solver_csd_t0,
             self._trainer.solver_csd_t1,
             self._trainer.solver_csd_t2,
             self._trainer.solver_csd_t,
-            self._trainer.solver_csd_warmup_it,
         ) = (
             cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_BETA,
+            cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T0,
             cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T1,
             cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T2,
             cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T,
-            cfg.SOLVER.CSD_WARMUP_ITERS,
         )
 
         self.scheduler = self.build_lr_scheduler(cfg, optimizer)
@@ -64,7 +65,7 @@ class CSDTrainerManager(DefaultTrainer):
         self.max_iter = cfg.SOLVER.MAX_ITER
         self.cfg = cfg
 
-        self.register_hooks(self.build_hooks())
+        self.register_hooks(self.build_hooks())  # TODO: add logging of CSD loss
 
     @classmethod
     def build_train_loader(cls, cfg):
@@ -94,17 +95,27 @@ class CSDTrainer(SimpleTrainer):
         data_labeled, data_unlabeled = next(self._data_loader_iter)
         data_time = time.perf_counter() - start
 
+        # A boolean that indicates whether CSD loss should be calculated at this iteration or not
+        # See `config.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T0`
+        calculate_csd = self.iter >= self.solver_csd_t0
+
         # Get losses, format (from :meth:`CSDGeneralizedRCNN.forward`):
         # - "loss_cls": bbox classification loss
         # - "loss_box_reg": bbox regression loss (see :meth:`FastRCNNOutputLayers.losses`)
         # - "csd_loss_cls": CSD consistency loss for bbox classification
         # - "csd_loss_box_reg": CSD consistency loss for bbox regression
-        loss_dict = self.model(data_labeled, data_unlabeled)
+        loss_dict = self.model(data_labeled, data_unlabeled, calculate_csd=calculate_csd)
 
         self._update_csd_loss_weight()  # CSD weight scheduling (could be a hook though)
 
-        losses_sup = sum(loss_dict["loss_cls"] + loss_dict["loss_box_reg"])
-        losses_csd = sum(loss_dict["csd_loss_cls"] + loss_dict["csd_loss_box_reg"])
+        # Sum up the losses
+        losses_sup = (
+            loss_dict["loss_rpn_cls"] + loss_dict["loss_rpn_loc"] + loss_dict["loss_cls"] + loss_dict["loss_box_reg"]
+        )
+        if calculate_csd:
+            losses_csd = loss_dict["csd_loss_cls"] + loss_dict["csd_loss_box_reg"]
+        else:
+            losses_csd = 0
         # TODO: authors use mean() here! Would it even work? Check shape
         losses = losses_sup + self.solver_csd_loss_weight * losses_csd
 
@@ -118,9 +129,9 @@ class CSDTrainer(SimpleTrainer):
         self.optimizer.step()
 
     def _update_csd_loss_weight(self):
-        """Controls weights scheduling for the CSD loss: updates the weight coefficient at each iteration."""
+        """Controls weight scheduling for the CSD loss: updates the weight coefficient at each iteration."""
 
-        if self.iter == 0:
+        if self.iter < self.solver_csd_t0:
             self.solver_csd_loss_weight = 0
         elif self.iter < self.solver_csd_t1:
             self.solver_csd_loss_weight = (

@@ -1,11 +1,13 @@
 import operator
 
 import torch
-from detectron2.data.build import get_detection_dataset_dicts, worker_init_reset_seed
+from detectron2.data.build import (get_detection_dataset_dicts,
+                                   worker_init_reset_seed)
 from detectron2.data.common import AspectRatioGroupedDataset, MapDataset
 from detectron2.data.dataset_mapper import DatasetMapper
 from detectron2.data.samplers import TrainingSampler
 from detectron2.utils.comm import get_world_size
+from detectron2.utils.logger import setup_logger
 
 
 def build_ss_train_loader(cfg, mapper):
@@ -118,10 +120,7 @@ class AspectRatioGroupedSSDataset(AspectRatioGroupedDataset):
 
     def __init__(self, datasets, batch_sizes):
         self.labeled_dataset, self.unlabeled_dataset = datasets
-        self.labeled_batch_size, self.unlabeled_batch_size = (
-            batch_sizes[0],
-            batch_sizes[1],
-        )
+        self.labeled_batch_size, self.unlabeled_batch_size = batch_sizes
         # There are two "buckets" (which could be called batches) for each type of dataset depending
         # on whether w > h or not for each of the images, see `AspectRatioGroupedDataset`.
         # They must be class members and not temporary variables because both buckets are filled
@@ -132,8 +131,11 @@ class AspectRatioGroupedSSDataset(AspectRatioGroupedDataset):
             [[] for _ in range(2)],
             [[] for _ in range(2)],
         )
+        self.logger = setup_logger(name=__name__)  # TODO: remove all logging from here
 
     def __iter__(self):
+        self.logger.debug("__iter__ was called on the dataset")
+
         def generate_batch(dataset, buckets, batch_size):
             """Wrapper for batch generator; returns bucket_id."""
             for d in dataset:
@@ -147,7 +149,10 @@ class AspectRatioGroupedSSDataset(AspectRatioGroupedDataset):
             # Unreachable code, raise an exception if ended up here
             raise RuntimeError("Dataset should be of infinite size due to the sampler")
 
+        self.logger.debug("Generating labeled batch")
         labeled_batch = generate_batch(self.labeled_dataset, self._labeled_buckets, self.labeled_batch_size)
+
+        self.logger.debug("Generating unlabeled batch")
         unlabeled_batch = generate_batch(self.labeled_dataset, self._labeled_buckets, self.labeled_batch_size)
 
         # Yield ([labeled_img, labeled_img_xflip], [unlabeled_im, unlabeled_img_xflip])

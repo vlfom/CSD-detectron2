@@ -27,12 +27,11 @@ def add_csd_config(cfg):
 
     # Recommended values for VOC dataset from the paper, see supplementary
     cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_BETA = 1  # Base multiplier for CSD weights (not mentioned in the paper)
+    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T0 = 1  # Train for one iteration without unlabeled data
     cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T1 = 20000
     cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T2 = 10000
-    # Note: even though `T` represents the total number of iterations, it's safe to continue training for more than `T`
+    # Note: even though `T` represents the total number of iterations, it's safe to continue training after `T` iters
     cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T = 70000
-    cfg.SOLVER.CSD_WARMUP_ITERS = 1  # Train for one iteration without unlabeled data
-    # TODO: implement ^
 
     ### Other parameters
     # Note: for the parameters below only the provided values are supported, changing them may break the code;
