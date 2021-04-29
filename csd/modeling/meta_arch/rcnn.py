@@ -67,10 +67,12 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         """
 
         logger = setup_logger(name=__name__)  # TODO: remove all logging from here
+        log = False
 
         losses = {}  # Placeholder for future loss accumulation
 
         ### Split labeled & unlabeled inputs and their flipped versions into separate variables
+        if log: logger.debug("Split inputs")
         labeled_inp, labeled_inp_flip = zip(*batched_inputs_labeled)
         unlabeled_inp, unlabeled_inp_flip = zip(*batched_inputs_unlabeled)
 
@@ -80,6 +82,7 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
 
         ### Preprocess inputs
         # We need GTs only for labeled inputs, for others - ignore
+        if log: logger.debug("Preprocess inputs")
         labeled_im, labeled_gt = self._preprocess_images_and_get_gt(labeled_inp)
         if calculate_csd:
             labeled_im_flip, _ = self._preprocess_images_and_get_gt(labeled_inp_flip)
@@ -89,6 +92,7 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
 
         ### Backbone feature extraction
         # Extract features for all images and their flipped versions
+        if log: logger.debug("Backbone feature extraction")
         labeled_feat = self.backbone(labeled_im.tensor)
         if calculate_csd:
             labeled_feat_flip = self.backbone(labeled_im_flip.tensor)
@@ -96,7 +100,7 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             unlabeled_feat_flip = self.backbone(unlabeled_im_flip.tensor)
 
         ### RPN proposals generation
-        logger.debug("Generating proposals for labeled")
+        if log: logger.debug("Generating proposals for labeled")
         # As described in the CSD paper, generate proposals only for non-flipped images
         labeled_prop, labeled_proposal_losses = self.proposal_generator(labeled_im, labeled_feat, labeled_gt)
         losses.update(labeled_proposal_losses)  # Save RPN losses
@@ -105,20 +109,20 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             # For unlabeled images there is no GTs which would cause an error inside RPN;
             # however, we use a hack: set `training=False` temporarily and hope that it doesn't crash :)
             # TODO: check that it works
-            logger.debug("Generating proposals for unlabeled")
+            if log: logger.debug("Generating proposals for unlabeled")
             self.proposal_generator.training = False
             unlabeled_prop, _ = self.proposal_generator(labeled_im, labeled_feat, None)
             self.proposal_generator.training = True
 
             ### Flip RPN proposals
-            logger.debug("Flipping proposals")
+            if log: logger.debug("Flipping proposals")
             labeled_prop_flip = self._xflip_rpn_proposals(labeled_prop)
             unlabeled_prop_flip = self._xflip_rpn_proposals(unlabeled_prop)
 
         ### Standard supervised forward pass and loss accumulation for RoI heads
         # "supervised" argument below defines whether the supplied data has/needs GTs or not
         # and indicates whether to perform HNM; see :meth:`CSDStandardROIHeads.roi_heads`
-        logger.debug("Performing a stadard forward pass")
+        if log: logger.debug("Performing a stadard forward pass")
         _, labeled_det_losses = self.roi_heads(labeled_im, labeled_feat, labeled_prop, labeled_gt, supervised=True)
         losses.update(labeled_det_losses)  # Save RoI heads supervised losses
 
@@ -126,7 +130,7 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         if calculate_csd:
 
             # Labeled inputs
-            logger.debug("Performing a CSD forward pass for labeled inputs")
+            if log: logger.debug("Performing a CSD forward pass for labeled inputs")
             labeled_csd_losses = self._csd_pass_and_get_loss(
                 labeled_im,
                 labeled_feat,
@@ -137,7 +141,7 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             )
 
             # Unlabeled inputs
-            logger.debug("Performing a CSD forward pass for unlabeled inputs")
+            if log: logger.debug("Performing a CSD forward pass for unlabeled inputs")
             unlabeled_csd_losses = self._csd_pass_and_get_loss(
                 unlabeled_im,
                 unlabeled_feat,
@@ -159,7 +163,7 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             if storage.iter % self.vis_period == 0:
                 self.visualize_training(labeled_inp, labeled_prop)
 
-        logger.debug(f"Losses {losses}")
+        if log: logger.debug(f"Losses {losses}")
 
         return losses
 

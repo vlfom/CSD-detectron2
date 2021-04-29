@@ -73,15 +73,19 @@ class CSDStandardROIHeads(StandardROIHeads):
             return pred_instances, {}
 
     def _forward_box(
-        self, features: Dict[str, torch.Tensor], proposals: List[Instances], supervised: Any = True,
+        self,
+        features: Dict[str, torch.Tensor],
+        proposals: List[Instances],
+        supervised: Any = True,
     ):
-        """Forward logic of the box prediction branch.
+        """Forward logic of the bbox prediction head.
 
         The code is taken from :meth:`StandardROIHeads._forward_box`. Additional `supervised` arg is added.
         Look for "CSD: ..." comments to find modified lines.
         """
 
         features = [features[f] for f in self.box_in_features]
+        print(features[0].shape, len(proposals))
         box_features = self.box_pooler(features, [x.proposal_boxes for x in proposals])
         box_features = self.box_head(box_features)
         predictions = self.box_predictor(box_features)
