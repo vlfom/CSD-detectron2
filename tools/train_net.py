@@ -1,11 +1,10 @@
 """TODO: add docs
 """
 
-from detectron2.config import set_global_cfg, get_cfg
-from detectron2.engine import default_argument_parser, default_setup, launch
-
 from csd.config import add_csd_config
-from csd.engine import BaselineTrainer, CSDTrainer
+from csd.engine import CSDTrainerManager
+from detectron2.config import get_cfg, set_global_cfg
+from detectron2.engine import default_argument_parser, default_setup, launch
 
 
 def setup(args):
@@ -17,14 +16,11 @@ def setup(args):
     cfg.merge_from_list(args.opts)  # Extend with config specified in args
 
     assert (  # Sanity check
-        cfg.SOLVER.IMS_PER_BATCH
-        == cfg.SOLVER.IMG_PER_BATCH_LABEL + cfg.SOLVER.IMG_PER_BATCH_UNLABEL
+        cfg.SOLVER.IMS_PER_BATCH == cfg.SOLVER.IMS_PER_BATCH_LABEL + cfg.SOLVER.IMS_PER_BATCH_UNLABEL
     ), "Total number of images per batch must be equal to the sum of labeled and unlabeled images per batch"
 
     cfg.freeze()
-    set_global_cfg(
-        cfg
-    )  # TODO: do we need this? Hacky feature to enable global config access
+    set_global_cfg(cfg)  # Not really useful in this project, but kept for compatibility
 
     default_setup(cfg, args)
 
@@ -37,17 +33,13 @@ def main(args):
     cfg = setup(args)
 
     if args.eval_only:  # TODO: implement eval mode
-        pass
+        raise NotImplementedError()
 
-    # Set up the Trainer based on the specified mode
-    if cfg.SOLVER.MODE == "STANDARD":  # Without CSD
-        trainer_base = BaselineTrainer
-    elif cfg.SOLVER.MODE == "CSD":  # With CSD
-        trainer_base = CSDTrainer
-    else:
-        raise ValueError(f"Specified trainer cannot be found: {cfg.SEMISUPNET.Trainer}")
-
-    trainer = trainer_base(cfg)
+    # Set up the Trainer. I extend DefaultTrainer for managing the training loop. Effectively it's
+    # not a trainer itself - it merely wraps the training loop, controls hooks, loading/saving, etc.
+    # The trainer that actually runs the forward and backward passes is `CSDTrainer` stored in
+    # `DefaultTrainer._trainer` (see `DefaultTrainer.__init__()`).
+    trainer = CSDTrainerManager(cfg)
     trainer.resume_or_load(resume=args.resume)
 
     return trainer.train()

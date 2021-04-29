@@ -1,9 +1,7 @@
-import logging
 import operator
 
 import torch
-from detectron2.data.build import (get_detection_dataset_dicts,
-                                   worker_init_reset_seed)
+from detectron2.data.build import get_detection_dataset_dicts, worker_init_reset_seed
 from detectron2.data.common import AspectRatioGroupedDataset, MapDataset
 from detectron2.data.dataset_mapper import DatasetMapper
 from detectron2.data.samplers import TrainingSampler
@@ -13,8 +11,8 @@ from detectron2.utils.comm import get_world_size
 def build_ss_train_loader(cfg, mapper):
     """Builds a semi-supervised data loader that yields both labeled and unlabeled images.
 
-    Each batch consists of `cfg.SOLVER.IMG_PER_BATCH_LABEL` labeled and
-    `cfg.SOLVER.IMG_PER_BATCH_UNLABEL` unlabeled images, which can be modified
+    Each batch consists of `cfg.SOLVER.IMS_PER_BATCH_LABEL` labeled and
+    `cfg.SOLVER.IMS_PER_BATCH_UNLABEL` unlabeled images, which can be modified
     in `csd/config/config.py` or in a custom `configs/*.yaml` config file
     supplied to your training script.
 
@@ -26,8 +24,8 @@ def build_ss_train_loader(cfg, mapper):
 
     The final object that is returned is a DataLoader with infinite sampling yielding
     a pair of batches with labeled and unlabeled images with the same aspect ratio within batch.
-    Specifically, the DataLoader yields:
-    ((labeled_images, labeled_images_x_flipped), (unlabeled_images, unlabeled_images_x_flipped)).
+    Specifically, the DataLoader yields a tuple of lists:
+    ([labeled_img, labeled_img_xflip], [unlabeled_im, unlabeled_img_xflip]).
     """
     # TODO: add support for splitting the same dataset e.g. based on supervision %
 
@@ -51,30 +49,24 @@ def build_ss_train_loader(cfg, mapper):
     unlabeled_dataset = MapDataset(unlabeled_dataset_dicts, mapper)
 
     # Define data samplers
-    assert (
-        cfg.DATALOADER.SAMPLER_TRAIN == "TrainingSampler"
-    ), "Unsupported training sampler: {}".format(cfg.DATALOADER.SAMPLER_TRAIN)
+    assert cfg.DATALOADER.SAMPLER_TRAIN == "TrainingSampler", "Unsupported training sampler: {}".format(
+        cfg.DATALOADER.SAMPLER_TRAIN
+    )
     labeled_sampler = TrainingSampler(len(labeled_dataset))
     unlabeled_sampler = TrainingSampler(len(unlabeled_dataset))
 
     return build_ss_batch_data_loader(  # Initialize actual dataloaders
         (labeled_dataset, unlabeled_dataset),
         (labeled_sampler, unlabeled_sampler),
-        cfg.SOLVER.IMG_PER_BATCH_LABEL,
-        cfg.SOLVER.IMG_PER_BATCH_UNLABEL,
+        cfg.SOLVER.IMS_PER_BATCH_LABEL,
+        cfg.SOLVER.IMS_PER_BATCH_UNLABEL,
         aspect_ratio_grouping=cfg.DATALOADER.ASPECT_RATIO_GROUPING,
         num_workers=cfg.DATALOADER.NUM_WORKERS,
     )
 
 
 def build_ss_batch_data_loader(
-    dataset,
-    sampler,
-    total_batch_size_label,
-    total_batch_size_unlabel,
-    *,
-    aspect_ratio_grouping=True,
-    num_workers=0
+    dataset, sampler, total_batch_size_label, total_batch_size_unlabel, *, aspect_ratio_grouping=True, num_workers=0
 ):
     """Instantiates two data loaders based on provided metadata and wraps them into a single loader.
 
@@ -159,14 +151,10 @@ class AspectRatioGroupedSSDataset(AspectRatioGroupedDataset):
             # Unreachable code, raise an exception if ended up here
             raise RuntimeError("Dataset should be of infinite size due to the sampler")
 
-        labeled_batch = generate_batch(
-            self.labeled_dataset, self._labeled_buckets, self.labeled_batch_size
-        )
-        unlabeled_batch = generate_batch(
-            self.labeled_dataset, self._labeled_buckets, self.labeled_batch_size
-        )
+        labeled_batch = generate_batch(self.labeled_dataset, self._labeled_buckets, self.labeled_batch_size)
+        unlabeled_batch = generate_batch(self.labeled_dataset, self._labeled_buckets, self.labeled_batch_size)
 
-        # Yield ((labeled_image, labeled_image_x_flipped), (unlabeled_image, unlabeled_image_x_flipped))
+        # Yield ([labeled_img, labeled_img_xflip], [unlabeled_im, unlabeled_img_xflip])
         yield (labeled_batch[:], unlabeled_batch[:])
         del labeled_batch[:]
         del unlabeled_batch[:]

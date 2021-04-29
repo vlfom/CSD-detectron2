@@ -12,7 +12,7 @@ class CSDDatasetMapper(DatasetMapper):
 
     This customized mapper extends the default mapper (that applies ResizeShortestEdge and
     RandomFlip, see `detectron2.data.detection_utils.build_augmentation`) by additionally
-    flipping the resulting image; it returns the image augmented in a default way along with its
+    flipping the final image; it returns the image augmented in a default way along with its
     flipped version (for the CSD loss).
     The `__call__` method is a straightforward extension of the parent's one, most code is
     taken from there. See the `DatasetMapper` for more details.

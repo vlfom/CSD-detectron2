@@ -1,1 +1,2 @@
-from .trainer import BaselineTrainer, CSDTrainer
+from .evaluator import get_evaluator
+from .trainer import CSDTrainerManager

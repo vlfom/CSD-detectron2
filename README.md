@@ -20,7 +20,7 @@ Training on VOC07 trainval (labeled) and VOC12 (unlabeled):
 python train_net.py \
       --num-gpus 8 \
       --config configs/coco_supervision/faster_rcnn_R_50_FPN_sup1_run1.yaml \
-       SOLVER.IMG_PER_BATCH_LABEL 16 SOLVER.IMG_PER_BATCH_UNLABEL 16
+       SOLVER.IMS_PER_BATCH_LABEL 16 SOLVER.IMS_PER_BATCH_UNLABEL 16
 ```
 
 ### Evaluation
