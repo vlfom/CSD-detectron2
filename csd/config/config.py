@@ -22,9 +22,9 @@ def add_csd_config(cfg):
     cfg.SOLVER.IMS_PER_BATCH_LABELED = 4  # One labeled and three unlabeled images per batch
     cfg.SOLVER.IMS_PER_BATCH_UNLABELED = 4
 
-    cfg.SOLVER.BASE_LR = 0.02  # TODO: 0.001 in CSD-RFCN impl
-    cfg.SOLVER.STEPS = (60000, 80000)  # TODO: 50K in CSD-RFCN impl
-    cfg.SOLVER.MAX_ITER = 90000  # TODO: 100K in CSD-RFCN impl
+    cfg.SOLVER.BASE_LR = 0.02
+    cfg.SOLVER.STEPS = (60000, 80000)
+    cfg.SOLVER.MAX_ITER = 90000
 
     # Recommended values for VOC dataset from the paper, see supplementary
     cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_BETA = 1.0  # Base multiplier for CSD weights (not mentioned in the paper)
@@ -34,8 +34,15 @@ def add_csd_config(cfg):
     # Note: even though `T` represents the total number of iterations, it's safe to continue training after `T` iters
     cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T = 70000
 
+    ### Auxiliary
+    # Note: visualizations work only with Wandb and when a **single** dataset is used, when using multiple datasets
+    # comment this out or see & modify `CSDGeneralizedRCNN._log_visualization_to_wandb`
+    cfg.USE_WANDB = True  # Comment this out if you don't want to use Wandb
+    cfg.WANDB_PROJECT_NAME = "csd-detectron2"
+    cfg.VIS_PERIOD = 100  # Plot training results each 100 iterations (sends them to Wandb)
+
     ### Other parameters
-    # Note: for the parameters below only the provided values are supported, changing them may break the code;
+    # Note: for the parameters below only the provided values are supported, changing them may (should) break the code;
     # they are put here just for reference
     cfg.DATALOADER.ASPECT_RATIO_GROUPING = True
     cfg.DATALOADER.SAMPLER_TRAIN = "TrainingSampler"

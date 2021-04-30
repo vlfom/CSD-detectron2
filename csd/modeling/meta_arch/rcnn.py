@@ -1,14 +1,20 @@
+import copy
 from typing import Any, Dict, List, Tuple
 
 import detectron2.data.transforms as T
 import numpy as np
 import torch
 import torch.nn.functional as F
+import wandb
+from detectron2.config import global_cfg
+from detectron2.data import MetadataCatalog
+from detectron2.data.detection_utils import convert_image_to_rgb
 from detectron2.modeling.meta_arch import GeneralizedRCNN
 from detectron2.modeling.meta_arch.build import META_ARCH_REGISTRY
-from detectron2.structures import Boxes, Instances
+from detectron2.structures import Boxes, ImageList, Instances
 from detectron2.utils.events import get_event_storage
 from detectron2.utils.logger import setup_logger
+from PIL import Image
 
 
 @META_ARCH_REGISTRY.register()
@@ -77,6 +83,12 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             torch.set_printoptions(linewidth=190, edgeitems=10)
 
         losses = {}  # Placeholder for future loss accumulation
+
+        visualize_at_this_iter = False  # If visualizations should be saved at this iteration
+        if self.vis_period > 0:
+            storage = get_event_storage()
+            if storage.iter % self.vis_period == 0:
+                visualize_at_this_iter = True
 
         ### Split labeled & unlabeled inputs and their flipped versions into separate variables
         if self.log:
@@ -163,11 +175,15 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
                 )
 
         ### RPN proposals generation
+        # NB: proposals are sorted by their objectness score in descending order
         if self.log:
             self.logger.debug("Generating proposals for labeled")
         # As described in the CSD paper, generate proposals only for non-flipped images
         labeled_prop, labeled_proposal_losses = self.proposal_generator(labeled_im, labeled_feat, labeled_gt)
         losses.update(labeled_proposal_losses)  # Save RPN losses
+
+        if visualize_at_this_iter:  # Visualize RPN proposals
+            self.visualize_training(labeled_inp, labeled_prop, predictions_mode="RPN")
 
         if use_csd:
             # For unlabeled images there is no GTs which would cause an error inside RPN;
@@ -209,6 +225,18 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         ### Standard supervised forward pass and loss accumulation for RoI heads
         # "supervised" argument below defines whether the supplied data has/needs GTs or not
         # and indicates whether to perform HNM; see :meth:`CSDStandardROIHeads.roi_heads`
+
+        # Visualize ROI predictions **before** forward pass (as it may modify proposals in-place)
+        if visualize_at_this_iter:
+            # First, generate bboxes predictions; for that tell ROI head that we are in the inference mode
+            # so that it yield instances instead of losses, etc.
+            self.roi_heads.training = False
+            with torch.no_grad():  # Make sure no gradients are changed
+                pred_instances, _ = self.roi_heads(labeled_im, labeled_feat, labeled_prop, None, supervised=True)
+            self.roi_heads.training = True
+
+            self.visualize_training(labeled_inp, pred_instances, predictions_mode="ROI")
+
         if self.log:
             self.logger.debug("Performing a standard forward pass of RoIs")
         _, labeled_det_losses = self.roi_heads(labeled_im, labeled_feat, labeled_prop, labeled_gt, supervised=True)
@@ -248,11 +276,34 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             for k in ["sup_csd_loss_cls", "sup_csd_loss_box_reg", "unsup_csd_loss_cls", "unsup_csd_loss_box_reg"]:
                 losses[k] = tzero
 
-        ### Original visualization code
-        if self.vis_period > 0:
-            storage = get_event_storage()
-            if storage.iter % self.vis_period == 0:
-                self.visualize_training(labeled_inp, labeled_prop)
+        ### Extra visualization step: predict RPN proposals and ROI bboxes for a fixed set of images
+        # The idea is to be able to monitor the progress on the same images, this helps to understand
+        # network's learning better
+        if visualize_at_this_iter:
+            with torch.no_grad():  # Run forward passes
+                # Check if such fixed set of images was initialized before; if not - create it
+                if not hasattr(self, "_vis_imset"):
+                    self._vis_imset = (  # Not the optimal way to copy
+                        # TODO: move 3 to config param (same as 3 below)
+                        copy.deepcopy(labeled_inp[:3]),
+                        ImageList(labeled_im.tensor[:3], labeled_im.image_sizes[:3]),
+                    )
+
+                feat = self.backbone(self._vis_imset[1].tensor)  # Extract backbone features
+
+                self.proposal_generator.training = False  # Extract RPN proposals
+                prop, _ = self.proposal_generator(self._vis_imset[1], feat, None)
+                self.proposal_generator.training = True
+
+                # Visualize RPN proposals
+                self.visualize_training(self._vis_imset[0], prop, predictions_mode="RPN_fixed")
+
+                self.roi_heads.training = False
+                pred, _ = self.roi_heads(self._vis_imset[1], feat, prop, None, supervised=True)  # Get ROI predictions
+                self.roi_heads.training = True
+
+                # Visualize ROI predictions
+                self.visualize_training(self._vis_imset[0], pred, predictions_mode="ROI_fixed")
 
         if self.log:
             self.logger.debug(f"Losses {losses}")
@@ -413,3 +464,147 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             f"{loss_dict_prefix}csd_loss_cls": csd_class_loss,
             f"{loss_dict_prefix}csd_loss_box_reg": csd_loc_loss,
         }
+
+    def visualize_training(self, batched_inputs, predictions, predictions_mode, viz_count=3, max_predictions=20):
+        """Visualizes images and predictions and sends them to Wandb.
+
+        batched_inputs: List[dict], list of inputs, each must contain keys "image"
+            and "instances"
+        predictions: List[Instances], list of bbox instances either from RPN or ROI head,
+            see `_log_visualization_to_wandb` for more details.
+        predictions_mode: str, must be begin with either 'RPN' or 'ROI', defines whether
+            `predictions` contain bboxes predicted by RPN or ROI heads.
+
+        # TODO: move 3 and 20 to config param; also check that 3 is less than batch size
+        """
+
+        assert predictions_mode[:3] in ["RPN", "ROI"], "Unsupported proposal visualization mode"
+
+        for inp, pred in zip(batched_inputs, predictions):
+            # img_path = inp["file_name"]
+            # img = np.array(Image.open(img_path))
+            img = inp["image"]
+            img = convert_image_to_rgb(img.permute(1, 2, 0), self.input_format)
+            gts = inp["instances"]
+            self._log_visualization_to_wandb(
+                img, gts, pred, predictions_mode, max_predictions, im_suffix=f"_{viz_count}"
+            )
+
+            viz_count -= 1  # Visualize up to `viz_count` images only
+            if viz_count == 0:
+                break
+
+    def _log_visualization_to_wandb(self, image, gts, predictions, predictions_mode, max_predictions, im_suffix=""):
+        """Logs provided image along with its GT and predicted bboxes to Wandb.
+
+        Args:
+            image: np.ndarray, (H,W,3) RGB image in 0-255 range
+            gts: Instances, list of GT bbox instances; must contain `gt_boxes` and
+                `gt_classes` attributes (see `d2.data.detection_utils.annotations_to_instances`)
+            predictions: Instances, list of predicted bbox instances.
+                If `predictions_mode` is `RPN`, it must contain `proposal_boxes` and
+                `objectness_logits` attributes (see
+                `d2.modeling.proposal_generator.proposal_utils.find_top_rpn_proposals`).
+                If `predictions_mode` is `ROI`, it must contain `pred_boxes`, `scores`, and
+                `pred_classes` attributes (see
+                `d2.modeling.roi_heads.fast_rcnn.fast_rcnn_inference`).
+            predictions_mode: str, must begin with either 'RPN' or 'ROI', defines whether
+                `predictions` contain bboxes predicted by RPN or ROI heads
+
+        For details on how exactly the bboxes are logged to Wandb see:
+        https://docs.wandb.ai/guides/track/log#images-and-overlays.
+        """
+
+        # Obtain class_id to class_name mapping
+        # TODO: here we make an assumption that only one dataset is used for training, for multiple
+        # datasets one would have to implement a different logic here, e.g. pass the dataset name
+        # as an argument or infer it from the image (maybe it's actually stored somewhere)
+        class_id_to_label = MetadataCatalog.get(global_cfg.DATASETS.TRAIN[0]).thing_classes[:]
+        rpn_object_id = len(class_id_to_label)  # Add extra label for RPN's "objectness"
+        class_id_to_label.append("rpn_object")
+        class_id_to_label = {k: v for k, v in enumerate(class_id_to_label)}  # Convert to dict (Wandb req)
+
+        viz_meta = {  # To store the vizualization metadata
+            "predictions": {"box_data": [], "class_labels": class_id_to_label},
+            "ground_truth": {"box_data": [], "class_labels": class_id_to_label},
+        }
+
+        # Append GT bboxes
+        gt_bboxes = gts.gt_boxes.tensor
+        gt_classes = gts.gt_classes
+        for i in range(len(gts)):
+            viz_meta["ground_truth"]["box_data"].append(
+                self._bbox_to_wandb_dict(gt_bboxes[i], int(gt_classes[i]), class_id_to_label, image_shape=image.shape)
+            )
+
+        # Visualize RPN predictions. For format see:
+        # `d2.modeling.proposal_generator.proposal_utils.find_top_rpn_proposals`
+        if predictions_mode.startswith("RPN"):
+            # Limit the number of proposals (sorted by objectness score)
+            box_number = min(len(predictions.proposal_boxes), max_predictions)
+            bboxes = predictions.proposal_boxes.tensor[:box_number]
+            logits = predictions.objectness_logits
+            probs = torch.sigmoid(logits)  # Convert logits to probs
+            for i in range(len(bboxes)):
+                viz_meta["predictions"]["box_data"].append(
+                    self._bbox_to_wandb_dict(
+                        bboxes[i],
+                        rpn_object_id,
+                        class_id_to_label,
+                        scores={"prob": float(probs[i])},
+                        image_shape=image.shape,
+                    )
+                )
+        elif predictions_mode.startswith("ROI"):
+            # Limit the number of proposals (sorted by objectness score)
+            box_number = min(len(predictions.pred_boxes), max_predictions)
+            bboxes = predictions.pred_boxes.tensor[:box_number]
+            probs = predictions.scores
+            classes = predictions.pred_classes
+            for i in range(len(bboxes)):
+                viz_meta["predictions"]["box_data"].append(
+                    self._bbox_to_wandb_dict(
+                        bboxes[i],
+                        int(classes[i]),
+                        class_id_to_label,
+                        scores={"prob": float(probs[i])},
+                        image_shape=image.shape,
+                    )
+                )
+
+        wandb_img = wandb.Image(image, boxes=viz_meta)  # Send to wandb
+        step = get_event_storage().iter
+        wandb.log({f"{predictions_mode}_predictions{im_suffix}": wandb_img}, step=step)
+
+    def _bbox_to_wandb_dict(self, xyxy_bbox, class_id, class_id_to_label, image_shape, scores=None):
+        """Converts provided variables to wandb bbox-visualization format.
+
+        Args:
+            xyxy_bbox: a tensor of size (4,) following the XYXY format (x1, y1, x2, y2)
+            class_id: int, predicted or actual class for the bbox
+            class_id_to_label: dict, mapping from class_id to class name
+            image_shape: shape of the image to calculate the scaled coordinates
+            scores (Optional): dict, additional values to attach to the bbox
+        Returns:
+            dict following wandb format. See
+            https://docs.wandb.ai/guides/track/log#images-and-overlays and
+            https://medium.com/analytics-vidhya/object-localization-with-keras-2f272f79e03c
+        """
+
+        caption = class_id_to_label[class_id]
+        if scores is not None and "prob" in scores:
+            prob = int(round(scores["prob"] * 100))
+            caption = f"{caption} {prob}%"
+        d = {
+            "position": {
+                "minX": xyxy_bbox[0].item() / image_shape[1],
+                "maxX": xyxy_bbox[2].item() / image_shape[1],
+                "minY": xyxy_bbox[1].item() / image_shape[0],
+                "maxY": xyxy_bbox[3].item() / image_shape[0],
+            },
+            "class_id": class_id,
+            "box_caption": caption,
+        }
+        if scores:
+            d["scores"] = scores
+        return d

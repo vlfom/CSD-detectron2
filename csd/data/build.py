@@ -1,7 +1,8 @@
 import operator
 
 import torch
-from detectron2.data.build import get_detection_dataset_dicts, worker_init_reset_seed
+from detectron2.data.build import (get_detection_dataset_dicts,
+                                   worker_init_reset_seed)
 from detectron2.data.common import AspectRatioGroupedDataset, MapDataset
 from detectron2.data.dataset_mapper import DatasetMapper
 from detectron2.data.samplers import TrainingSampler
@@ -132,7 +133,7 @@ class AspectRatioGroupedSSDataset(AspectRatioGroupedDataset):
     def __iter__(self):
         # Note: must use two separate iterators instead of e.g. looping through zip(data1, data2). Because of the
         # aspect ratio grouping into two buckets, one dataset may find a batch of same-ratio instances faster
-        # than the other. In such scenario, some images from the former get skipped.
+        # than the other. In such scenario, some images from the former may get skipped.
 
         labeled_d_iter = iter(self.labeled_dataset)
         unlabeled_d_iter = iter(self.unlabeled_dataset)

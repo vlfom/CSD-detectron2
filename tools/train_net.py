@@ -3,6 +3,8 @@
 
 import csd.modeling.meta_arch
 import csd.modeling.roi_heads
+import detectron2.data
+import wandb
 from csd.config import add_csd_config
 from csd.engine import CSDTrainerManager
 from detectron2.config import get_cfg, set_global_cfg
@@ -18,8 +20,7 @@ def setup(args):
     cfg.merge_from_list(args.opts)  # Extend with config specified in args
 
     assert (  # Sanity check
-        cfg.SOLVER.IMS_PER_BATCH
-        == cfg.SOLVER.IMS_PER_BATCH_LABELED + cfg.SOLVER.IMS_PER_BATCH_UNLABELED
+        cfg.SOLVER.IMS_PER_BATCH == cfg.SOLVER.IMS_PER_BATCH_LABELED + cfg.SOLVER.IMS_PER_BATCH_UNLABELED
     ), "Total number of images per batch must be equal to the sum of labeled and unlabeled images per batch"
 
     cfg.freeze()
@@ -34,6 +35,13 @@ def main(args):
     """Sets up config, instantiates trainer, and uses it to start the training loop"""
 
     cfg = setup(args)
+
+    if cfg.USE_WANDB:
+        # Set up wandb (for tracking visualizations)
+        wandb.login()
+        wandb.init(project=cfg.WANDB_PROJECT_NAME, sync_tensorboard=True, config=cfg)
+    else:
+        assert cfg.VIS_PERIOD == 0, "Visualizations without Wandb are not supported"
 
     if args.eval_only:  # TODO: implement eval mode
         raise NotImplementedError()

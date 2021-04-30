@@ -19,5 +19,6 @@ DATASETS:
   TRAIN: ("voc_2007_trainval",)
   TRAIN_UNLABELED: ("voc_2012_trainval",)
   TEST: ("voc_2007_test",)
-# DATALOADER:
-#   NUM_WORKERS: 1  # TODO: change.
+USE_WANDB: True
+WANDB_PROJECT_NAME: "csd-detectron2"
+VIS_PERIOD: 500
