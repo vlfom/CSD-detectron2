@@ -1,7 +1,9 @@
 from typing import Any, Dict, List, Tuple
 
 import detectron2.data.transforms as T
+import numpy as np
 import torch
+import torch.nn.functional as F
 from detectron2.modeling.meta_arch import GeneralizedRCNN
 from detectron2.modeling.meta_arch.build import META_ARCH_REGISTRY
 from detectron2.structures import Boxes, Instances
@@ -66,22 +68,23 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         To better understand the logic in this method, first see :meth:`GeneralizedRCNN.forward`.
         """
 
-        logger = setup_logger(name=__name__)  # TODO: remove all logging from here
-        log = True
+        self.logger = setup_logger(name=__name__)  # TODO: remove all logging from here
+        self.log = False
 
-        if log:
+        if self.log:
             storage = get_event_storage()
-            logger.debug(f"RCNN forward pass for iteration {storage.iter}")
+            self.logger.debug(f"RCNN forward pass for iteration {storage.iter}")
+            torch.set_printoptions(linewidth=190, edgeitems=10)
 
         losses = {}  # Placeholder for future loss accumulation
 
         ### Split labeled & unlabeled inputs and their flipped versions into separate variables
-        if log:
-            logger.debug("Split inputs")
+        if self.log:
+            self.logger.debug("Split inputs")
         labeled_inp, labeled_inp_flip = zip(*batched_inputs_labeled)
         unlabeled_inp, unlabeled_inp_flip = zip(*batched_inputs_unlabeled)
-        if log:
-            logger.debug(
+        if self.log:
+            self.logger.debug(
                 "Size of labeled and unlabeled data: {} {}, {} {}".format(
                     len(labeled_inp), len(labeled_inp_flip), len(unlabeled_inp), len(unlabeled_inp_flip)
                 )
@@ -93,32 +96,75 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
 
         ### Preprocess inputs
         # We need GTs only for labeled inputs, for others - ignore
-        if log:
-            logger.debug("Preprocess inputs")
+        if self.log:
+            self.logger.debug("Preprocess inputs")
         labeled_im, labeled_gt = self._preprocess_images_and_get_gt(labeled_inp)
-        if log:
-            logger.debug(
-                "Image sizes: {}, image content shape: {}".format(labeled_im.image_sizes[0:5], labeled_im.tensor.shape)
-            )
         if use_csd:
             labeled_im_flip, _ = self._preprocess_images_and_get_gt(labeled_inp_flip)
+            if self.log:
+                self.logger.debug(
+                    "Labeled image sizes: {}, image content shape: {}".format(
+                        labeled_im.image_sizes[0:2], labeled_im.tensor.shape
+                    )
+                )
+                self.logger.debug(
+                    "Labeled-flip image sizes: {}, image content shape: {}".format(
+                        labeled_im_flip.image_sizes[0:2], labeled_im_flip.tensor.shape
+                    )
+                )
+                self.logger.debug(
+                    "Labeled image content:\n{}".format(
+                        labeled_im.tensor[0, 0, :1, : (labeled_im.image_sizes[0][1] + 1)]
+                    )
+                )
+                self.logger.debug(
+                    "Labeled-flip image content:\n{}".format(
+                        labeled_im_flip.tensor[0, 0, :1, : (labeled_im_flip.image_sizes[0][1] + 1)]
+                    )
+                )
             # For unlabeled inputs, no GTs exist - ignore
             unlabeled_im, _ = self._preprocess_images_and_get_gt(unlabeled_inp)
             unlabeled_im_flip, _ = self._preprocess_images_and_get_gt(unlabeled_inp_flip)
+            if self.log:
+                self.logger.debug(
+                    "Unlabeled image content:\n{}".format(
+                        unlabeled_im.tensor[0, 0, :1, : (unlabeled_im.image_sizes[0][1] + 1)]
+                    )
+                )
+                self.logger.debug(
+                    "Unlabeled-flip image content:\n{}".format(
+                        unlabeled_im_flip.tensor[0, 0, :1, : (unlabeled_im_flip.image_sizes[0][1] + 1)]
+                    )
+                )
 
         ### Backbone feature extraction
         # Extract features for all images and their flipped versions
-        if log:
-            logger.debug("Backbone feature extraction")
+        if self.log:
+            self.logger.debug("Backbone feature extraction")
         labeled_feat = self.backbone(labeled_im.tensor)
         if use_csd:
             labeled_feat_flip = self.backbone(labeled_im_flip.tensor)
             unlabeled_feat = self.backbone(unlabeled_im.tensor)
             unlabeled_feat_flip = self.backbone(unlabeled_im_flip.tensor)
 
+            if self.log:
+                f_key = list(labeled_feat.keys())[0]
+                self.logger.debug(
+                    "Labeled backbone content: {}\n{}".format(
+                        labeled_feat[f_key].shape,
+                        labeled_feat[f_key][0, 0, :1, : labeled_im.image_sizes[0][1] // 4 + 5],
+                    )
+                )
+                self.logger.debug(
+                    "Labeled-flip backbone content: {}\n{}".format(
+                        labeled_feat_flip[f_key].shape,
+                        labeled_feat_flip[f_key][0, 0, :1, : labeled_im.image_sizes[0][1] // 4 + 5],
+                    )
+                )
+
         ### RPN proposals generation
-        if log:
-            logger.debug("Generating proposals for labeled")
+        if self.log:
+            self.logger.debug("Generating proposals for labeled")
         # As described in the CSD paper, generate proposals only for non-flipped images
         labeled_prop, labeled_proposal_losses = self.proposal_generator(labeled_im, labeled_feat, labeled_gt)
         losses.update(labeled_proposal_losses)  # Save RPN losses
@@ -127,52 +173,52 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             # For unlabeled images there is no GTs which would cause an error inside RPN;
             # however, we use a hack: set `training=False` temporarily and hope that it doesn't crash :)
             # TODO: check that it works
-            if log:
-                logger.debug("Generating proposals for unlabeled")
+            if self.log:
+                self.logger.debug("Generating proposals for unlabeled")
             self.proposal_generator.training = False
             unlabeled_prop, _ = self.proposal_generator(unlabeled_im, unlabeled_feat, None)
             self.proposal_generator.training = True
 
-            if log:
-                logger.debug("Received proposals for unlabeled:")
-                logger.debug(
+            if self.log:
+                self.logger.debug("Labeled proposals:")
+                self.logger.debug(
                     "#batch {}\tprops for #0 {}\treq_grad {}".format(
-                        len(unlabeled_prop),
-                        list(unlabeled_prop[0].proposal_boxes.tensor.shape),
-                        unlabeled_prop[0].proposal_boxes.tensor.requires_grad,
+                        len(labeled_prop),
+                        list(labeled_prop[0].proposal_boxes.tensor.shape),
+                        labeled_prop[0].proposal_boxes.tensor.requires_grad,
                     )
                 )
-                logger.debug("proposal #0 {}".format(unlabeled_prop[0].proposal_boxes.tensor[0]))
+                self.logger.debug("proposal #0 {}".format(labeled_prop[0].proposal_boxes.tensor[0]))
 
             ### Flip RPN proposals
-            if log:
-                logger.debug("Flipping proposals for both labeled and unlabeled")
-            labeled_prop_flip = self._xflip_rpn_proposals(labeled_prop, labeled_im.tensor.shape[-1])
-            unlabeled_prop_flip = self._xflip_rpn_proposals(unlabeled_prop, labeled_im.tensor.shape[-1])
-            if log:
-                logger.debug("Flipped proposals for unlabeled:")
-                logger.debug(
+            if self.log:
+                self.logger.debug("Flipping proposals for both labeled and unlabeled")
+            labeled_prop_flip = self._xflip_rpn_proposals(labeled_prop)
+            unlabeled_prop_flip = self._xflip_rpn_proposals(unlabeled_prop)
+            if self.log:
+                self.logger.debug("Labeled-flip proposals:")
+                self.logger.debug(
                     "#batch {}\tprops for #0 {}\treq_grad {}".format(
-                        len(unlabeled_prop_flip),
-                        list(unlabeled_prop_flip[0].proposal_boxes.tensor.shape),
-                        unlabeled_prop_flip[0].proposal_boxes.tensor.requires_grad,
+                        len(labeled_prop_flip),
+                        list(labeled_prop_flip[0].proposal_boxes.tensor.shape),
+                        labeled_prop_flip[0].proposal_boxes.tensor.requires_grad,
                     )
                 )
-                logger.debug("proposal #0 {}".format(unlabeled_prop_flip[0].proposal_boxes.tensor[0]))
+                self.logger.debug("proposal #0 {}".format(labeled_prop_flip[0].proposal_boxes.tensor[0]))
 
         ### Standard supervised forward pass and loss accumulation for RoI heads
         # "supervised" argument below defines whether the supplied data has/needs GTs or not
         # and indicates whether to perform HNM; see :meth:`CSDStandardROIHeads.roi_heads`
-        if log:
-            logger.debug("Performing a standard forward pass of RoIs")
+        if self.log:
+            self.logger.debug("Performing a standard forward pass of RoIs")
         _, labeled_det_losses = self.roi_heads(labeled_im, labeled_feat, labeled_prop, labeled_gt, supervised=True)
         losses.update(labeled_det_losses)  # Save RoI heads supervised losses
 
         ### CSD forward pass and loss accumulation
         if use_csd:
             # Labeled inputs
-            if log:
-                logger.debug("Performing a CSD forward pass for labeled inputs")
+            if self.log:
+                self.logger.debug("Performing a CSD forward pass for labeled inputs")
             labeled_csd_losses = self._csd_pass_and_get_loss(
                 labeled_im,
                 labeled_feat,
@@ -180,11 +226,13 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
                 labeled_im_flip,
                 labeled_feat_flip,
                 labeled_prop_flip,
+                loss_dict_prefix="sup_",
             )
+            losses.update(labeled_csd_losses)  # Update the loss dict
 
             # Unlabeled inputs
-            if log:
-                logger.debug("Performing a CSD forward pass for unlabeled inputs")
+            if self.log:
+                self.logger.debug("Performing a CSD forward pass for unlabeled inputs")
             unlabeled_csd_losses = self._csd_pass_and_get_loss(
                 unlabeled_im,
                 unlabeled_feat,
@@ -192,17 +240,13 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
                 unlabeled_im_flip,
                 unlabeled_feat_flip,
                 unlabeled_prop_flip,
+                loss_dict_prefix="unsup_",
             )
-
-            # Sum up the losses for labeled and unlabeled inputs and save to the loss dict
-            for k in unlabeled_csd_losses:
-                labeled_csd_losses[k] += unlabeled_csd_losses[k]
-
-            losses.update(labeled_csd_losses)
-        else:
-            losses.update(
-                {"csd_loss_cls": torch.zeros(1).to(self.device), "csd_loss_box_reg": torch.zeros(1).to(self.device)}
-            )
+            losses.update(unlabeled_csd_losses)  # Update the loss dict
+        else:  # Set CSD losses to zeros when CSD is not used
+            tzero = torch.zeros(1).to(self.device)
+            for k in ["sup_csd_loss_cls", "sup_csd_loss_box_reg", "unsup_csd_loss_cls", "unsup_csd_loss_box_reg"]:
+                losses[k] = tzero
 
         ### Original visualization code
         if self.vis_period > 0:
@@ -210,8 +254,8 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             if storage.iter % self.vis_period == 0:
                 self.visualize_training(labeled_inp, labeled_prop)
 
-        if log:
-            logger.debug(f"Losses {losses}")
+        if self.log:
+            self.logger.debug(f"Losses {losses}")
 
         return losses
 
@@ -225,18 +269,18 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             gt_instances = [x["instances"].to(self.device) for x in inputs]
         return images, gt_instances
 
-    def _xflip_rpn_proposals(self, proposals: List[Instances], tensor_width: int):
+    def _xflip_rpn_proposals(self, proposals: List[Instances]):
         """Creates a copy of given RPN proposals by flipping them along x-axis.
 
         Args:
             proposals: list of size N (where N is the number of images in the batch) of predicted
-                instances from the RPN. Each element is a set of bboxes of type Instances.
-
-            tensor_width: width of padded images to x-flip the proposals properly (see comment
-                above `transform` below).
+            instances from the RPN. Each element is a set of bboxes of type Instances.
         Returns:
             flipped_proposals: list of flipped instances in the original format.
         """
+
+        if self.log:
+            self.logger.debug("[_xflip_rpn_proposals] in length: {}".format(len(proposals)))
 
         # Create a new list for proposals
         proposals_new = []
@@ -249,16 +293,12 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         # so we can apply the transformation right away. The exact content of proposals
         # (when using the default `RPN`) is defined on line 127 in `find_top_rpn_proposals`:
         # https://github.com/facebookresearch/detectron2/blob/master/detectron2/modeling/proposal_generator/proposal_utils.py#L127
-
-        # Instantiate a transformation for the given images. Note that we are using the width of the batch's tensor
-        # and not of individual images - because images were padded and RPN was run on the padded version,
-        # during flipping we also must used padded widths. Previously was a bug here due to:
-        # `T.HFlipTransform(prop._image_size[1])`
-        transform = T.HFlipTransform(tensor_width)
         with torch.no_grad():
             for prop in proposals:
                 im_size = prop._image_size  # Get image size
+
                 prop_new = Instances(im_size)  # Create a new set of instances
+                transform = T.HFlipTransform(im_size[1])  # Instantiate a transformation for the given image
                 bbox_tensor = prop.proposal_boxes.tensor.detach().clone().cpu()  # Clone and detach bboxes
                 bbox_tensor = transform.apply_box(bbox_tensor)  # Apply flip and send back to device
                 bbox_tensor = torch.as_tensor(  # Convert back to Tensor on the correct device
@@ -270,9 +310,12 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
                 proposals_new.append(prop_new)  # Save
             # TODO: check that flipping works
 
+        if self.log:
+            self.logger.debug("[_xflip_rpn_proposals] out length: {}".format(len(proposals_new)))
+
         return proposals_new
 
-    def _csd_pass_and_get_loss(self, im, feat, prop, im_flip, feat_flip, prop_flip):
+    def _csd_pass_and_get_loss(self, im, feat, prop, im_flip, feat_flip, prop_flip, loss_dict_prefix):
         """Passes images with RPN proposals and their flipped versions through RoI heads and calculates CSD loss.
 
         Args:
@@ -280,6 +323,7 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             feat: list of backbone features for each image
             prop: list of Instances (object proposals from RPN) for each image
             im_flip, feat_flip, prop_flip: same data for flipped image
+            loss_dict_prefix: prefix for the loss dict to store the losses
         Returns:
             dict: a dictionary with two keys containing CSD classification and localization losses.
         """
@@ -292,37 +336,80 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         ((class_scores, deltas), _) = self.roi_heads(im, feat, prop, supervised=False)
         ((class_scores_flip, deltas_flip), _) = self.roi_heads(im_flip, feat_flip, prop_flip, supervised=False)
 
+        ### Apply log-softmax to class-probabilities
+        class_scores = F.log_softmax(class_scores, dim=1)
+        class_scores_flip = F.log_softmax(class_scores_flip, dim=1)
+
+        if self.log:
+            self.logger.debug(
+                "[_csd_pass_and_get_loss] class_scores original: {}\n{}".format(class_scores.shape, class_scores[:3])
+            )
+            self.logger.debug(
+                "[_csd_pass_and_get_loss] class_scores flipped: {}\n{}".format(
+                    class_scores_flip.shape, class_scores_flip[:3]
+                )
+            )
+
         ### Calculate loss mask
         # Ignore bboxes for which background is the class with the largest probability
         # based on the non-flipped image
         bkg_scores = class_scores[:, -1]
         mask = bkg_scores < class_scores.max(1).values
 
-        ### Calculate CSD classification loss
-        csd_class_criterion = torch.nn.KLDivLoss().to(self.device)
+        if mask.sum() == 0:  # All bboxes are classified as bkg - return 0s
+            csd_class_loss = csd_loc_loss = torch.zeros(1).to(self.device)
+        else:
+            if self.log:
+                self.logger.debug(
+                    "[_csd_pass_and_get_loss] class_scores original after mask: {}\n{}".format(
+                        class_scores[mask].shape, class_scores[mask][:3]
+                    )
+                )
+                self.logger.debug(
+                    "[_csd_pass_and_get_loss] class_scores flipped after mask: {}\n{}".format(
+                        class_scores_flip[mask].shape, class_scores_flip[mask][:3]
+                    )
+                )
 
-        # Calculate KL losses between class_roi_head predictions for original and flipped versions
-        # Note: the paper mentions JSD loss here, however, in the implementation authors mistakenly used
-        # a sum of KL losses divided by two, which we reproduce here
-        # TODO: check the shape of this
-        csd_class_loss = (
-            csd_class_criterion(class_scores[mask], class_scores_flip[mask]).sum(-1).mean()
-            + csd_class_criterion(class_scores_flip[mask], class_scores[mask]).sum(-1).mean()
-        ) / 2
+            ### Calculate CSD classification loss
+            csd_class_criterion = torch.nn.KLDivLoss(reduction="batchmean", log_target=True).to(self.device)
 
-        ### Calculate CSD localization losss
-        # Note: default format of deltas is (dx, dy, dw, dh), see
-        # :meth:`Box2BoxTransform.apply_deltas`.
+            if self.log:
+                self.logger.debug(
+                    "[_csd_pass_and_get_loss] class_loss one-sided:\n{}".format(
+                        csd_class_criterion(class_scores[mask], class_scores_flip[mask])
+                    )
+                )
 
-        # Change the sign of predicted dx for flipped instances for simplified
-        # loss calculation (see https://github.com/soo89/CSD-SSD/issues/3)
-        deltas_flip[:, 0] = -deltas_flip[:, 0]
+            # Calculate KL losses between class_roi_head predictions for original and flipped versions
+            # Note: the paper mentions JSD loss here, however, in the implementation authors mistakenly used
+            # a sum of KL losses divided by two, which we reproduce here
+            # TODO: check the shape of this
+            csd_class_loss = (
+                csd_class_criterion(class_scores[mask], class_scores_flip[mask]).sum(-1).mean()
+                + csd_class_criterion(class_scores_flip[mask], class_scores[mask]).sum(-1).mean()
+            ) / 2
 
-        # Calculate as MSE
-        # TODO: check the shape of this
-        csd_loc_loss = torch.mean(torch.pow(deltas[mask] - deltas_flip[mask], 2))
+            ### Calculate CSD localization losss
+            # Note: default format of deltas is (dx, dy, dw, dh), see
+            # :meth:`Box2BoxTransform.apply_deltas`.
+
+            # Change the sign of predicted dx for flipped instances for simplified
+            # loss calculation (see https://github.com/soo89/CSD-SSD/issues/3)
+            deltas_flip[:, 0] = -deltas_flip[:, 0]
+
+            # Calculate as MSE
+            # TODO: check the shape of this
+            csd_loc_loss = torch.mean(torch.pow(deltas[mask] - deltas_flip[mask], 2))
+
+            if self.log:
+                self.logger.debug(
+                    "[_csd_pass_and_get_loss] class_reg one-sided:\n{}".format(
+                        csd_class_criterion(class_scores[mask], class_scores_flip[mask])
+                    )
+                )
 
         return {
-            "csd_loss_cls": csd_class_loss,
-            "csd_loss_box_reg": csd_loc_loss,
+            f"{loss_dict_prefix}csd_loss_cls": csd_class_loss,
+            f"{loss_dict_prefix}csd_loss_box_reg": csd_loc_loss,
         }

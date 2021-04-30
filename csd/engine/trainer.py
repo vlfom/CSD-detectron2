@@ -5,7 +5,8 @@ import weakref
 import numpy as np
 from csd.data import CSDDatasetMapper, build_ss_train_loader
 from detectron2.checkpoint import DetectionCheckpointer
-from detectron2.engine import DefaultTrainer, SimpleTrainer, TrainerBase, create_ddp_model
+from detectron2.engine import (DefaultTrainer, SimpleTrainer, TrainerBase,
+                               create_ddp_model)
 from detectron2.utils import comm
 from detectron2.utils.logger import setup_logger
 
@@ -101,8 +102,9 @@ class CSDTrainer(SimpleTrainer):
         # Get losses, format (from :meth:`CSDGeneralizedRCNN.forward`):
         # - "loss_cls", "loss_rpn_cls": bbox roi and rpn classification loss
         # - "loss_box_reg", "loss_rpn_loc": bbox roi and rpn localization loss (see :meth:`FastRCNNOutputLayers.losses`)
-        # - "csd_loss_cls": CSD consistency loss for classification
-        # - "csd_loss_box_reg": CSD consistency loss for localization
+        # - "sup_csd_loss_cls": CSD consistency loss for classification on labeled data
+        # - "sup_csd_loss_box_reg": CSD consistency loss for localization on labeled data
+        # - "unsup_csd_loss_cls", "unsup_csd_loss_box_reg": CSD losses on unlabeled data
         loss_dict = self.model(data_labeled, data_unlabeled, use_csd=use_csd)
 
         self._update_csd_loss_weight()  # CSD weight scheduling (could be a hook though)
@@ -112,9 +114,16 @@ class CSDTrainer(SimpleTrainer):
             loss_dict["loss_rpn_cls"] + loss_dict["loss_rpn_loc"] + loss_dict["loss_cls"] + loss_dict["loss_box_reg"]
         )
         if use_csd:
-            losses_csd = loss_dict["csd_loss_cls"] + loss_dict["csd_loss_box_reg"]
+            losses_csd = (
+                loss_dict["sup_csd_loss_cls"]
+                + loss_dict["sup_csd_loss_box_reg"]
+                + loss_dict["unsup_csd_loss_cls"]
+                + loss_dict["unsup_csd_loss_box_reg"]
+            )
+            loss_dict["total_csd_loss"] = losses_csd  # Save for monitoring
         else:
             losses_csd = 0
+
         # TODO: authors use mean() here! Would it even work? Check shape
         losses = losses_sup + self.solver_csd_loss_weight * losses_csd
 

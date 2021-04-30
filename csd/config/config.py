@@ -18,17 +18,17 @@ def add_csd_config(cfg):
 
     ### Solver parameters
     # Note: with CSD enabled, the effective batch size is twice larger as images get flipped
-    cfg.SOLVER.IMS_PER_BATCH = 2
-    cfg.SOLVER.IMS_PER_BATCH_LABELED = 1  # One labeled and three unlabeled images per batch
-    cfg.SOLVER.IMS_PER_BATCH_UNLABELED = 1
+    cfg.SOLVER.IMS_PER_BATCH = 8
+    cfg.SOLVER.IMS_PER_BATCH_LABELED = 4  # One labeled and three unlabeled images per batch
+    cfg.SOLVER.IMS_PER_BATCH_UNLABELED = 4
 
     cfg.SOLVER.BASE_LR = 0.02  # TODO: 0.001 in CSD-RFCN impl
     cfg.SOLVER.STEPS = (60000, 80000)  # TODO: 50K in CSD-RFCN impl
     cfg.SOLVER.MAX_ITER = 90000  # TODO: 100K in CSD-RFCN impl
 
     # Recommended values for VOC dataset from the paper, see supplementary
-    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_BETA = 1  # Base multiplier for CSD weights (not mentioned in the paper)
-    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T0 = 1  # Train for one iteration without unlabeled data
+    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_BETA = 1.0  # Base multiplier for CSD weights (not mentioned in the paper)
+    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T0 = 1  # Train for one iteration without CSD loss
     cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T1 = 20000
     cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T2 = 10000
     # Note: even though `T` represents the total number of iterations, it's safe to continue training after `T` iters
