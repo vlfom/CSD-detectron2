@@ -1,6 +1,8 @@
+Work in progress.
+
 # CSD: Consistency-based Semi-supervised learning for object Detection implementation in Detectron2
 
-This repository contains an unofficial implementation of the method described in the CSD paper by Jeong et al based on the [detectron2](https://github.com/facebookresearch/detectron2) framework.
+This repository contains an unofficial implementation of the method described in the [CSD paper by Jeong et al](https://papers.nips.cc/paper/2019/hash/d0f4dae80c3d0277922f8371d5827292-Abstract.html) based on the [detectron2](https://github.com/facebookresearch/detectron2) framework.
 
 The repository includes implementation of the method for two-stage RFCN object detector only as single-stage detectors were not the focus of my research. The author's official source code can be found [in this repository](https://github.com/soo89/CSD-RFCN) (also see their [SSD implementation](https://github.com/soo89/CSD-SSD)), but I struggled to make it run and faced unexpected memory issues.
 
