@@ -17,7 +17,7 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         self,
         batched_inputs_labeled: List[Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]],
         batched_inputs_unlabeled: List[Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]],
-        calculate_csd: Any = False,
+        use_csd: Any = False,
     ):
         """Performs a standard forward pass along with CSD logic and returns resulting losses.
 
@@ -42,8 +42,8 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
                 any ground truth instances.
                 During the inference can be set to `None`.
 
-            calculate_csd: a boolean that indicates whether to calculate CSD; it is `True` during all
-                training iterations apart from few initial ones, where CSD loss is not calculated,
+            use_csd: a boolean that indicates whether to use CSD loss; it is `True` during all
+                training iterations apart from few initial ones, when CSD loss is not calculated,
                 see `config.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T0`
 
         Returns:
@@ -67,14 +67,25 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         """
 
         logger = setup_logger(name=__name__)  # TODO: remove all logging from here
-        log = False
+        log = True
+
+        if log:
+            storage = get_event_storage()
+            logger.debug(f"RCNN forward pass for iteration {storage.iter}")
 
         losses = {}  # Placeholder for future loss accumulation
 
         ### Split labeled & unlabeled inputs and their flipped versions into separate variables
-        if log: logger.debug("Split inputs")
+        if log:
+            logger.debug("Split inputs")
         labeled_inp, labeled_inp_flip = zip(*batched_inputs_labeled)
         unlabeled_inp, unlabeled_inp_flip = zip(*batched_inputs_unlabeled)
+        if log:
+            logger.debug(
+                "Size of labeled and unlabeled data: {} {}, {} {}".format(
+                    len(labeled_inp), len(labeled_inp_flip), len(unlabeled_inp), len(unlabeled_inp_flip)
+                )
+            )
 
         ### If in inference mode, return predictions for labeled inputs (skipping unlabeled batch)
         if not self.training:
@@ -82,9 +93,14 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
 
         ### Preprocess inputs
         # We need GTs only for labeled inputs, for others - ignore
-        if log: logger.debug("Preprocess inputs")
+        if log:
+            logger.debug("Preprocess inputs")
         labeled_im, labeled_gt = self._preprocess_images_and_get_gt(labeled_inp)
-        if calculate_csd:
+        if log:
+            logger.debug(
+                "Image sizes: {}, image content shape: {}".format(labeled_im.image_sizes[0:5], labeled_im.tensor.shape)
+            )
+        if use_csd:
             labeled_im_flip, _ = self._preprocess_images_and_get_gt(labeled_inp_flip)
             # For unlabeled inputs, no GTs exist - ignore
             unlabeled_im, _ = self._preprocess_images_and_get_gt(unlabeled_inp)
@@ -92,45 +108,71 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
 
         ### Backbone feature extraction
         # Extract features for all images and their flipped versions
-        if log: logger.debug("Backbone feature extraction")
+        if log:
+            logger.debug("Backbone feature extraction")
         labeled_feat = self.backbone(labeled_im.tensor)
-        if calculate_csd:
+        if use_csd:
             labeled_feat_flip = self.backbone(labeled_im_flip.tensor)
             unlabeled_feat = self.backbone(unlabeled_im.tensor)
             unlabeled_feat_flip = self.backbone(unlabeled_im_flip.tensor)
 
         ### RPN proposals generation
-        if log: logger.debug("Generating proposals for labeled")
+        if log:
+            logger.debug("Generating proposals for labeled")
         # As described in the CSD paper, generate proposals only for non-flipped images
         labeled_prop, labeled_proposal_losses = self.proposal_generator(labeled_im, labeled_feat, labeled_gt)
         losses.update(labeled_proposal_losses)  # Save RPN losses
 
-        if calculate_csd:
+        if use_csd:
             # For unlabeled images there is no GTs which would cause an error inside RPN;
             # however, we use a hack: set `training=False` temporarily and hope that it doesn't crash :)
             # TODO: check that it works
-            if log: logger.debug("Generating proposals for unlabeled")
+            if log:
+                logger.debug("Generating proposals for unlabeled")
             self.proposal_generator.training = False
-            unlabeled_prop, _ = self.proposal_generator(labeled_im, labeled_feat, None)
+            unlabeled_prop, _ = self.proposal_generator(unlabeled_im, unlabeled_feat, None)
             self.proposal_generator.training = True
 
+            if log:
+                logger.debug("Received proposals for unlabeled:")
+                logger.debug(
+                    "#batch {}\tprops for #0 {}\treq_grad {}".format(
+                        len(unlabeled_prop),
+                        list(unlabeled_prop[0].proposal_boxes.tensor.shape),
+                        unlabeled_prop[0].proposal_boxes.tensor.requires_grad,
+                    )
+                )
+                logger.debug("proposal #0 {}".format(unlabeled_prop[0].proposal_boxes.tensor[0]))
+
             ### Flip RPN proposals
-            if log: logger.debug("Flipping proposals")
-            labeled_prop_flip = self._xflip_rpn_proposals(labeled_prop)
-            unlabeled_prop_flip = self._xflip_rpn_proposals(unlabeled_prop)
+            if log:
+                logger.debug("Flipping proposals for both labeled and unlabeled")
+            labeled_prop_flip = self._xflip_rpn_proposals(labeled_prop, labeled_im.tensor.shape[-1])
+            unlabeled_prop_flip = self._xflip_rpn_proposals(unlabeled_prop, labeled_im.tensor.shape[-1])
+            if log:
+                logger.debug("Flipped proposals for unlabeled:")
+                logger.debug(
+                    "#batch {}\tprops for #0 {}\treq_grad {}".format(
+                        len(unlabeled_prop_flip),
+                        list(unlabeled_prop_flip[0].proposal_boxes.tensor.shape),
+                        unlabeled_prop_flip[0].proposal_boxes.tensor.requires_grad,
+                    )
+                )
+                logger.debug("proposal #0 {}".format(unlabeled_prop_flip[0].proposal_boxes.tensor[0]))
 
         ### Standard supervised forward pass and loss accumulation for RoI heads
         # "supervised" argument below defines whether the supplied data has/needs GTs or not
         # and indicates whether to perform HNM; see :meth:`CSDStandardROIHeads.roi_heads`
-        if log: logger.debug("Performing a stadard forward pass")
+        if log:
+            logger.debug("Performing a standard forward pass of RoIs")
         _, labeled_det_losses = self.roi_heads(labeled_im, labeled_feat, labeled_prop, labeled_gt, supervised=True)
         losses.update(labeled_det_losses)  # Save RoI heads supervised losses
 
         ### CSD forward pass and loss accumulation
-        if calculate_csd:
-
+        if use_csd:
             # Labeled inputs
-            if log: logger.debug("Performing a CSD forward pass for labeled inputs")
+            if log:
+                logger.debug("Performing a CSD forward pass for labeled inputs")
             labeled_csd_losses = self._csd_pass_and_get_loss(
                 labeled_im,
                 labeled_feat,
@@ -141,7 +183,8 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             )
 
             # Unlabeled inputs
-            if log: logger.debug("Performing a CSD forward pass for unlabeled inputs")
+            if log:
+                logger.debug("Performing a CSD forward pass for unlabeled inputs")
             unlabeled_csd_losses = self._csd_pass_and_get_loss(
                 unlabeled_im,
                 unlabeled_feat,
@@ -156,6 +199,10 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
                 labeled_csd_losses[k] += unlabeled_csd_losses[k]
 
             losses.update(labeled_csd_losses)
+        else:
+            losses.update(
+                {"csd_loss_cls": torch.zeros(1).to(self.device), "csd_loss_box_reg": torch.zeros(1).to(self.device)}
+            )
 
         ### Original visualization code
         if self.vis_period > 0:
@@ -163,7 +210,8 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             if storage.iter % self.vis_period == 0:
                 self.visualize_training(labeled_inp, labeled_prop)
 
-        if log: logger.debug(f"Losses {losses}")
+        if log:
+            logger.debug(f"Losses {losses}")
 
         return losses
 
@@ -177,12 +225,15 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             gt_instances = [x["instances"].to(self.device) for x in inputs]
         return images, gt_instances
 
-    def _xflip_rpn_proposals(self, proposals: List[Instances]):
+    def _xflip_rpn_proposals(self, proposals: List[Instances], tensor_width: int):
         """Creates a copy of given RPN proposals by flipping them along x-axis.
 
         Args:
             proposals: list of size N (where N is the number of images in the batch) of predicted
-            instances from the RPN. Each element is a set of bboxes of type Instances.
+                instances from the RPN. Each element is a set of bboxes of type Instances.
+
+            tensor_width: width of padded images to x-flip the proposals properly (see comment
+                above `transform` below).
         Returns:
             flipped_proposals: list of flipped instances in the original format.
         """
@@ -198,22 +249,26 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         # so we can apply the transformation right away. The exact content of proposals
         # (when using the default `RPN`) is defined on line 127 in `find_top_rpn_proposals`:
         # https://github.com/facebookresearch/detectron2/blob/master/detectron2/modeling/proposal_generator/proposal_utils.py#L127
-        for prop in proposals:
-            im_size = prop._image_size  # Get image size
 
-            prop_new = Instances(im_size)  # Create a new set of instances
-            transform = T.HFlipTransform(im_size[1])  # Instantiate a transformation for the given image
-            bbox_tensor = prop.proposal_boxes.tensor.detach().clone().cpu()  # Clone and detach bboxes
-            bbox_tensor = transform.apply_box(bbox_tensor)  # Apply flip and send back to device
-            bbox_tensor = torch.as_tensor(  # Convert back to Tensor on the correct device
-                bbox_tensor, device=self.device
-            )
-            prop_new.proposal_boxes = Boxes(bbox_tensor)  # Save new bboxes
-            # prop_new.objectness_logits = prop.objectness_logits.clone()
+        # Instantiate a transformation for the given images. Note that we are using the width of the batch's tensor
+        # and not of individual images - because images were padded and RPN was run on the padded version,
+        # during flipping we also must used padded widths. Previously was a bug here due to:
+        # `T.HFlipTransform(prop._image_size[1])`
+        transform = T.HFlipTransform(tensor_width)
+        with torch.no_grad():
+            for prop in proposals:
+                im_size = prop._image_size  # Get image size
+                prop_new = Instances(im_size)  # Create a new set of instances
+                bbox_tensor = prop.proposal_boxes.tensor.detach().clone().cpu()  # Clone and detach bboxes
+                bbox_tensor = transform.apply_box(bbox_tensor)  # Apply flip and send back to device
+                bbox_tensor = torch.as_tensor(  # Convert back to Tensor on the correct device
+                    bbox_tensor, device=self.device
+                )
+                prop_new.proposal_boxes = Boxes(bbox_tensor)  # Save new bboxes
+                # prop_new.objectness_logits = prop.objectness_logits.clone()
 
-            proposals_new.append(prop_new)  # Save
-
-        # TODO: check that flipping works
+                proposals_new.append(prop_new)  # Save
+            # TODO: check that flipping works
 
         return proposals_new
 

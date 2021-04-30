@@ -85,7 +85,6 @@ class CSDStandardROIHeads(StandardROIHeads):
         """
 
         features = [features[f] for f in self.box_in_features]
-        print(features[0].shape, len(proposals))
         box_features = self.box_pooler(features, [x.proposal_boxes for x in proposals])
         box_features = self.box_head(box_features)
         predictions = self.box_predictor(box_features)

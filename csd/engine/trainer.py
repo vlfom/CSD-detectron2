@@ -5,8 +5,7 @@ import weakref
 import numpy as np
 from csd.data import CSDDatasetMapper, build_ss_train_loader
 from detectron2.checkpoint import DetectionCheckpointer
-from detectron2.engine import (DefaultTrainer, SimpleTrainer, TrainerBase,
-                               create_ddp_model)
+from detectron2.engine import DefaultTrainer, SimpleTrainer, TrainerBase, create_ddp_model
 from detectron2.utils import comm
 from detectron2.utils.logger import setup_logger
 
@@ -97,14 +96,14 @@ class CSDTrainer(SimpleTrainer):
 
         # A boolean that indicates whether CSD loss should be calculated at this iteration or not
         # See `config.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T0`
-        calculate_csd = self.iter >= self.solver_csd_t0
+        use_csd = self.iter >= self.solver_csd_t0
 
         # Get losses, format (from :meth:`CSDGeneralizedRCNN.forward`):
-        # - "loss_cls": bbox classification loss
-        # - "loss_box_reg": bbox regression loss (see :meth:`FastRCNNOutputLayers.losses`)
-        # - "csd_loss_cls": CSD consistency loss for bbox classification
-        # - "csd_loss_box_reg": CSD consistency loss for bbox regression
-        loss_dict = self.model(data_labeled, data_unlabeled, calculate_csd=calculate_csd)
+        # - "loss_cls", "loss_rpn_cls": bbox roi and rpn classification loss
+        # - "loss_box_reg", "loss_rpn_loc": bbox roi and rpn localization loss (see :meth:`FastRCNNOutputLayers.losses`)
+        # - "csd_loss_cls": CSD consistency loss for classification
+        # - "csd_loss_box_reg": CSD consistency loss for localization
+        loss_dict = self.model(data_labeled, data_unlabeled, use_csd=use_csd)
 
         self._update_csd_loss_weight()  # CSD weight scheduling (could be a hook though)
 
@@ -112,7 +111,7 @@ class CSDTrainer(SimpleTrainer):
         losses_sup = (
             loss_dict["loss_rpn_cls"] + loss_dict["loss_rpn_loc"] + loss_dict["loss_cls"] + loss_dict["loss_box_reg"]
         )
-        if calculate_csd:
+        if use_csd:
             losses_csd = loss_dict["csd_loss_cls"] + loss_dict["csd_loss_box_reg"]
         else:
             losses_csd = 0

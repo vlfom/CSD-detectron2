@@ -17,8 +17,9 @@ def add_csd_config(cfg):
     cfg.DATASETS.TEST = ("voc_2007_test",)
 
     ### Solver parameters
-    cfg.SOLVER.IMS_PER_BATCH = 2  # One labeled and three unlabeled images per batch
-    cfg.SOLVER.IMS_PER_BATCH_LABELED = 1
+    # Note: with CSD enabled, the effective batch size is twice larger as images get flipped
+    cfg.SOLVER.IMS_PER_BATCH = 2
+    cfg.SOLVER.IMS_PER_BATCH_LABELED = 1  # One labeled and three unlabeled images per batch
     cfg.SOLVER.IMS_PER_BATCH_UNLABELED = 1
 
     cfg.SOLVER.BASE_LR = 0.02  # TODO: 0.001 in CSD-RFCN impl
