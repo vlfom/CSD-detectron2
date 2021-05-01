@@ -84,7 +84,7 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         losses = {}  # Placeholder for future loss accumulation
 
         # Indicates whether visualizations should be saved at this iteration
-        do_visualize = self.vis_period and get_event_storage().iter % self.vis_period
+        do_visualize = self.vis_period and (get_event_storage().iter % self.vis_period == 0)
 
         ### Split labeled & unlabeled inputs and their flipped versions into separate variables
         labeled_inp, labeled_inp_flip = zip(*batched_inputs_labeled)
@@ -178,7 +178,7 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         detected_instances: Optional[List[Instances]] = None,
         do_postprocess: bool = True,
     ):
-        """Run inference on the given inputs.
+        """Run inference on the given inputs (usually the batch size is 1 for inference).
 
         The code is taken from :meth:`GeneralizedRCNN.forward`, only some unnecessary if-else blocks were
         removed (not relevant for this project) and several lines to plot visualizations added,
@@ -186,8 +186,8 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         """
         assert not self.training
 
-        # Indicates whether visualizations should be generated
-        do_visualize = global_cfg.VIS_TEST
+        # Indicates whether visualizations should be generated for the current image
+        do_visualize = self._inference_decide_visualization()
 
         images = self.preprocess_image(batched_inputs)
         features = self.backbone(images.tensor)
@@ -205,6 +205,32 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             return GeneralizedRCNN._postprocess(results, batched_inputs, images.image_sizes)
         else:
             return results
+
+    def _inference_decide_visualization(self):
+        """Helper method that decides whether an image should be visualized in inference mode.
+
+        The idea is to visualize a random subset of images (`cfg.VIS_IMS_PER_GROUP` in total),
+        however, because inside this object we can't access all the data, all we can do is use
+        a "hacky" way - flip a coin for each image, and if we haven't reached the maximum
+        allowed images - visualize this one.
+        """
+
+        if not global_cfg.VIS_TEST:  # Visualization is disabled in config
+            return False
+
+        if not hasattr(self, "_vis_test_counter"):  # Lazy initialization of "images already vis-ed" counter
+            self._vis_test_counter = 0
+
+        if self._vis_test_counter >= global_cfg.VIS_IMS_PER_GROUP:  # Enough images were plotted
+            return False
+
+        # Consider visualizing each ~100th image; this heuristic would work well for datasets where
+        # #images is >> `100 * cfg.VIS_IMS_PER_GROUP`
+        _r = np.random.randint(100)
+        if _r == 0:
+            self._vis_test_counter += 1
+            return True
+        return False
 
     def _preprocess_images_and_get_gt(self, inputs):
         """D2's standard preprocessing of input instances.
@@ -351,6 +377,7 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             viz_count=global_cfg.VIS_IMS_PER_GROUP,
             max_predictions=global_cfg.VIS_MAX_PREDS_PER_IM,
             predictions_mode="RPN_test",
+            im_suffix=self._vis_test_counter,
         )
 
     def _visualize_test_roi_preds(self, inputs, pred_instances):
@@ -362,7 +389,10 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             viz_count=global_cfg.VIS_IMS_PER_GROUP,
             max_predictions=global_cfg.VIS_MAX_PREDS_PER_IM,
             predictions_mode="ROI_test",
+            im_suffix=self._vis_test_counter,
         )
+
+        wandb.log({"_ignore": 0}, commit=True)  # Push all generated images to the cloud
 
     def _visualize_train_fixed_predictions(self, labeled_inp, labeled_im):
         """Visualize RPN proposals and ROI bboxes for a fixed set of images.
@@ -411,13 +441,10 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
                 predictions_mode="ROI_fixed",
             )
 
+        wandb.log({"_ignore": 0}, commit=True)  # Push all generated images to the cloud
+
     def _visualize_predictions(
-        self,
-        batched_inputs,
-        predictions,
-        predictions_mode,
-        viz_count,
-        max_predictions,
+        self, batched_inputs, predictions, predictions_mode, viz_count, max_predictions, im_suffix=None
     ):
         """Visualizes images and predictions and sends them to Wandb.
 
@@ -435,9 +462,8 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             img = inp["image"]
             img = convert_image_to_rgb(img.permute(1, 2, 0), self.input_format)
             gts = inp["instances"]
-            self._log_visualization_to_wandb(
-                img, gts, pred, predictions_mode, max_predictions, im_suffix=f"_{viz_count}"
-            )
+            suffix = f"_{viz_count}" if im_suffix is None else im_suffix
+            self._log_visualization_to_wandb(img, gts, pred, predictions_mode, max_predictions, im_suffix=suffix)
 
             viz_count -= 1  # Visualize up to `viz_count` images only
             if viz_count == 0:
@@ -468,10 +494,11 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         # Here we make an assumption that only one dataset is used for training, for multiple
         # datasets one would have to implement a different logic here, e.g. pass the dataset name
         # as an argument or infer it from the image (maybe it's actually stored somewhere)
-        class_id_to_label = MetadataCatalog.get(global_cfg.DATASETS.TRAIN[0]).thing_classes[:]
-        rpn_object_id = len(class_id_to_label)  # Add extra label for RPN's "objectness"
-        class_id_to_label.append("rpn_object")
-        class_id_to_label = {k: v for k, v in enumerate(class_id_to_label)}  # Convert to dict (Wandb req)
+        if predictions_mode.startswith("ROI"):  # For ROI viz provide full vocabulary
+            class_id_to_label = MetadataCatalog.get(global_cfg.DATASETS.TRAIN[0]).thing_classes[:]
+            class_id_to_label = {k: v for k, v in enumerate(class_id_to_label)}  # Convert to dict (Wandb req)
+        elif predictions_mode.startswith("RPN"):  # For RPN viz provide only "meta-labels"
+            class_id_to_label = {1: "object", 2: "proposal"}
 
         viz_meta = {  # To store the vizualization metadata
             "predictions": {"box_data": [], "class_labels": class_id_to_label},
@@ -483,7 +510,12 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         gt_classes = gts.gt_classes
         for i in range(len(gts)):
             viz_meta["ground_truth"]["box_data"].append(
-                self._bbox_to_wandb_dict(gt_bboxes[i], int(gt_classes[i]), class_id_to_label, image_shape=image.shape)
+                self._bbox_to_wandb_dict(
+                    gt_bboxes[i],
+                    int(gt_classes[i]) if predictions_mode.startswith("ROI") else 1,  # don't log real class for RPNs
+                    class_id_to_label,
+                    image_shape=image.shape,
+                )
             )
 
         # Visualize RPN predictions. For format see:
@@ -498,7 +530,7 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
                 viz_meta["predictions"]["box_data"].append(
                     self._bbox_to_wandb_dict(
                         bboxes[i],
-                        rpn_object_id,
+                        2,  # RPN's proposal ID
                         class_id_to_label,
                         scores={"prob": float(probs[i])},
                         image_shape=image.shape,
@@ -522,7 +554,11 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
                 )
 
         wandb_img = wandb.Image(image, boxes=viz_meta)  # Send to wandb
-        wandb.log({f"{predictions_mode}_predictions{im_suffix}": wandb_img})
+        try:  # Try getting current iteration (to synchronize logs)
+            iter_ = get_event_storage().iter
+        except:  # Will crash during inference, set to 1
+            iter_ = 1
+        wandb.log({f"{predictions_mode}_predictions{im_suffix}": wandb_img}, commit=False)
 
     def _bbox_to_wandb_dict(self, xyxy_bbox, class_id, class_id_to_label, image_shape, scores=None):
         """Converts provided variables to wandb bbox-visualization format.

@@ -1,3 +1,6 @@
+# Detectron2's default configuration for RCNN FPN
+# https://github.com/facebookresearch/detectron2/blob/master/configs/Base-RCNN-FPN.yaml
+
 MODEL:
   META_ARCHITECTURE: "GeneralizedRCNN"
   BACKBONE:

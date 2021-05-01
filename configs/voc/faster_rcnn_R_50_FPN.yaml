@@ -1,4 +1,5 @@
 # Detectron2's default configuration for VOC
+# https://github.com/facebookresearch/detectron2/blob/master/configs/PascalVOC-Detection/faster_rcnn_R_50_FPN.yaml
 
 _BASE_: "../Base-RCNN-FPN.yaml"
 MODEL:

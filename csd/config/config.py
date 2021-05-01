@@ -8,6 +8,20 @@ def add_csd_config(cfg):
     cfg.MODEL.META_ARCHITECTURE = "CSDGeneralizedRCNN"
     cfg.MODEL.ROI_HEADS.NAME = "CSDStandardROIHeads"
 
+    ### Solver parameters
+    # Note: with CSD enabled, the "effective" batch size (in terms of memory) is twice larger as images get flipped
+    cfg.SOLVER.IMS_PER_BATCH = 8
+    cfg.SOLVER.IMS_PER_BATCH_LABELED = 4
+    cfg.SOLVER.IMS_PER_BATCH_UNLABELED = 4
+
+    # Recommended CSD weighting values for VOC dataset from the CSD paper, see their supplementary
+    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_BETA = 1.0  # Base multiplier for CSD weights (not mentioned in the paper)
+    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T0 = 1  # Train for one iteration without CSD loss
+    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T1 = 20000
+    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T2 = 10000
+    # Note: even though `T` represents the total number of iterations, it's safe to continue training after `T` iters
+    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T = 70000
+
     ### Dataset parameters
     # Default datasets are VOC07+12 for training and VOC07 for testing
     # Note only VOC and COCO for object detection are currently supported
@@ -18,34 +32,17 @@ def add_csd_config(cfg):
     # is supported (for visualization reasons; if you turn it off, multiple datasets should work)
     cfg.DATASETS.TEST = ("voc_2007_test",)
 
-    ### Solver parameters
-    # Note: with CSD enabled, the "effective" batch size (in terms of memory) is twice larger as images get flipped
-    cfg.SOLVER.IMS_PER_BATCH = 8
-    cfg.SOLVER.IMS_PER_BATCH_LABELED = 4
-    cfg.SOLVER.IMS_PER_BATCH_UNLABELED = 4
-
-    cfg.SOLVER.BASE_LR = 0.02
-    cfg.SOLVER.STEPS = (60000, 80000)
-    cfg.SOLVER.MAX_ITER = 90000
-
-    # Recommended CSD weighting values for VOC dataset from the CSD paper, see their supplementary
-    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_BETA = 1.0  # Base multiplier for CSD weights (not mentioned in the paper)
-    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T0 = 1  # Train for one iteration without CSD loss
-    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T1 = 20000
-    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T2 = 10000
-    # Note: even though `T` represents the total number of iterations, it's safe to continue training after `T` iters
-    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T = 70000
-
     ### Auxiliary
     # Note: visualizations work only with Wandb and when a **single** dataset is used, when using multiple datasets
     # comment this out or see & modify `CSDGeneralizedRCNN._log_visualization_to_wandb`
     cfg.USE_WANDB = True  # Comment this out if you don't want to use Wandb
     cfg.WANDB_PROJECT_NAME = "csd-detectron2"
-    cfg.VIS_PERIOD = 100  # Plot training results each <> iterations (sends them to Wandb)
+    cfg.VIS_PERIOD = 200  # Plot training results each <> iterations (sends them to Wandb)
     # # images to plot per visualization run "group", i.e. for RPN/ROI plots how many examples to show; 3 nicely fits in Wandb
     cfg.VIS_IMS_PER_GROUP = 3
     cfg.VIS_MAX_PREDS_PER_IM = 40  # Maximum number of bounding boxes per image in visualization
     cfg.VIS_TEST = True  # Visualize outputs during inference as well
+    cfg.TEST.EVAL_PERIOD = 1000
 
     ### Other parameters
     # Note: for the parameters below only the provided values are supported, changing them may (should) break the code;
