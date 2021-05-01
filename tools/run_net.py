@@ -68,10 +68,10 @@ def main(args):
 
     cfg = setup(args)
 
-    if cfg.USE_WANDB:
+    if comm.is_main_process() and cfg.USE_WANDB:
         # Set up wandb (for tracking visualizations)
         wandb.login()
-        wandb.init(project=cfg.WANDB_PROJECT_NAME, sync_tensorboard=True, config=cfg)
+        wandb.init(project=cfg.WANDB_PROJECT_NAME, config=cfg)
     else:
         assert cfg.VIS_PERIOD == 0, "Visualizations without Wandb are not supported"
 

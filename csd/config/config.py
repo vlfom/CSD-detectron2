@@ -17,10 +17,12 @@ def add_csd_config(cfg):
     # Recommended CSD weighting values for VOC dataset from the CSD paper, see their supplementary
     cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_BETA = 1.0  # Base multiplier for CSD weights (not mentioned in the paper)
     cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T0 = 1  # Train for one iteration without CSD loss
-    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T1 = 20000
-    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T2 = 10000
+    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T1 = 5000
+    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T2 = 2000
     # Note: even though `T` represents the total number of iterations, it's safe to continue training after `T` iters
-    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T = 70000
+    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T = 20000
+
+    cfg.SOLVER.MAX_ITER = 20000  # D2's default for VOC is 18000
 
     ### Dataset parameters
     # Default datasets are VOC07+12 for training and VOC07 for testing

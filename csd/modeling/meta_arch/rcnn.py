@@ -392,8 +392,6 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             im_suffix=self._vis_test_counter,
         )
 
-        wandb.log({"_ignore": 0}, commit=True)  # Push all generated images to the cloud
-
     def _visualize_train_fixed_predictions(self, labeled_inp, labeled_im):
         """Visualize RPN proposals and ROI bboxes for a fixed set of images.
 
@@ -440,8 +438,6 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
                 max_predictions=global_cfg.VIS_MAX_PREDS_PER_IM,
                 predictions_mode="ROI_fixed",
             )
-
-        wandb.log({"_ignore": 0}, commit=True)  # Push all generated images to the cloud
 
     def _visualize_predictions(
         self, batched_inputs, predictions, predictions_mode, viz_count, max_predictions, im_suffix=None
@@ -553,12 +549,13 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
                     )
                 )
 
-        wandb_img = wandb.Image(image, boxes=viz_meta)  # Send to wandb
-        try:  # Try getting current iteration (to synchronize logs)
+        try:  # Get current iteration
             iter_ = get_event_storage().iter
-        except:  # Will crash during inference, set to 1
+        except:  # There is no iter when in eval mode - set to 1
             iter_ = 1
-        wandb.log({f"{predictions_mode}_predictions{im_suffix}": wandb_img}, commit=False)
+            
+        wandb_img = wandb.Image(image, boxes=viz_meta)  # Send to wandb
+        wandb.log({f"{predictions_mode}_predictions{im_suffix}": wandb_img}, step=iter_)
 
     def _bbox_to_wandb_dict(self, xyxy_bbox, class_id, class_id_to_label, image_shape, scores=None):
         """Converts provided variables to wandb bbox-visualization format.

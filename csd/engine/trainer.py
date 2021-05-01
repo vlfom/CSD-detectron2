@@ -5,16 +5,20 @@ import weakref
 
 import numpy as np
 import torch
+import wandb
+from csd.checkpoint import CSDDetectionCheckpointer
 from csd.data import CSDDatasetMapper, TestDatasetMapper, build_ss_train_loader
+from csd.engine import CSDEvalHook
 from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.data import MetadataCatalog, build_detection_test_loader
 from detectron2.engine import (DefaultTrainer, SimpleTrainer, TrainerBase,
-                               create_ddp_model)
+                               create_ddp_model, hooks)
 from detectron2.evaluation import (COCOEvaluator, DatasetEvaluator,
                                    PascalVOCDetectionEvaluator)
 from detectron2.utils import comm
 from detectron2.utils.events import get_event_storage
 from detectron2.utils.logger import setup_logger
+from fvcore.nn.precise_bn import get_bn_modules
 
 
 class CSDTrainerManager(DefaultTrainer):
@@ -61,7 +65,7 @@ class CSDTrainerManager(DefaultTrainer):
         )
 
         self.scheduler = self.build_lr_scheduler(cfg, optimizer)
-        self.checkpointer = DetectionCheckpointer(
+        self.checkpointer = CSDDetectionCheckpointer(  # CSD: use custom checkpointer (only few lines are added there)
             # Assume you want to save checkpoints together with logs/statistics
             model,
             cfg.OUTPUT_DIR,
@@ -72,6 +76,52 @@ class CSDTrainerManager(DefaultTrainer):
         self.cfg = cfg
 
         self.register_hooks(self.build_hooks())
+
+    def build_hooks(self):
+        """Changes one hook from `DefaultTrainer.build_hooks()` to enable Wandb logging.
+
+        See `DefaultTrainer.build_hooks` for all details, changes are commented with "CSD: ...".
+        """
+
+        cfg = self.cfg.clone()
+        cfg.defrost()
+        cfg.DATALOADER.NUM_WORKERS = 0  # save some memory and time for PreciseBN
+
+        ret = [
+            hooks.IterationTimer(),
+            hooks.LRScheduler(),
+            hooks.PreciseBN(
+                # Run at the same freq as (but before) evaluation.
+                cfg.TEST.EVAL_PERIOD,
+                self.model,
+                # Build a new data loader to not affect training
+                self.build_train_loader(cfg),
+                cfg.TEST.PRECISE_BN.NUM_ITER,
+            )
+            if cfg.TEST.PRECISE_BN.ENABLED and get_bn_modules(self.model)
+            else None,
+        ]
+
+        # Do PreciseBN before checkpointer, because it updates the model and need to
+        # be saved by checkpointer.
+        # This is not always the best: if checkpointing has a different frequency,
+        # some checkpoints may have more precise statistics than others.
+        if comm.is_main_process():
+            ret.append(hooks.PeriodicCheckpointer(self.checkpointer, cfg.SOLVER.CHECKPOINT_PERIOD))
+
+        def test_and_save_results():
+            self._last_eval_results = self.test(self.cfg, self.model)
+            return self._last_eval_results
+
+        # Do evaluation after checkpointer, because then if it fails,
+        # we can use the saved checkpoint to debug.
+        ret.append(hooks.CSDEvalHook(cfg.TEST.EVAL_PERIOD, test_and_save_results))  # CSD: replace eval hook
+
+        if comm.is_main_process():
+            # Here the default print/log frequency of each writer is used.
+            # run writers in the end, so that evaluation metrics are written
+            ret.append(hooks.PeriodicWriter(self.build_writers(), period=20))
+        return ret
 
     @classmethod
     def build_train_loader(cls, cfg):
@@ -184,3 +234,49 @@ class CSDTrainer(SimpleTrainer):
                 )
                 * self.solver_csd_beta
             )
+
+    def _write_metrics(
+        self,
+        loss_dict: Dict[str, torch.Tensor],
+        data_time: float,
+        prefix: str = "",
+    ):
+        """Adds several lines of code to log metrics to Wandb.
+
+        See `SimpleTrainer._write_metrics` for all details. Changes are commented with "CSD: ...".
+        """
+
+        metrics_dict = {k: v.detach().cpu().item() for k, v in loss_dict.items()}
+        metrics_dict["data_time"] = data_time
+
+        # Gather metrics among all workers for logging
+        # This assumes we do DDP-style training, which is currently the only
+        # supported method in detectron2.
+        all_metrics_dict = comm.gather(metrics_dict)
+
+        if comm.is_main_process():
+            storage = get_event_storage()
+
+            # data_time among workers can have high variance. The actual latency
+            # caused by data_time is the maximum among workers.
+            data_time = np.max([x.pop("data_time") for x in all_metrics_dict])
+            storage.put_scalar("data_time", data_time)
+
+            # average the rest metrics
+            metrics_dict = {k: np.mean([x[k] for x in all_metrics_dict]) for k in all_metrics_dict[0].keys()}
+            total_losses_reduced = sum(metrics_dict.values())
+            if not np.isfinite(total_losses_reduced):
+                raise FloatingPointError(
+                    f"Loss became infinite or NaN at iteration={self.iter}!\n" f"loss_dict = {metrics_dict}"
+                )
+
+            storage.put_scalar("{}total_loss".format(prefix), total_losses_reduced)
+            if len(metrics_dict) > 1:
+                storage.put_scalars(**metrics_dict)
+
+                # CSD: log values to Wandb
+                try:
+                    iter_ = get_event_storage().iter
+                except:  # There is no iter when in eval mode - set to 1
+                    iter_ = 1
+                wandb.log(metrics_dict, step=iter_)
