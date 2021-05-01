@@ -1,10 +1,3 @@
-"""
-The RoI heads in this module had to be overriden for a single reason - by default,
-Detectron2 returns either losses if in training mode or predicted instances if in evaluation
-mode. For the CSD loss, however, we need both losses **and** predictions training. For that, only
-`return`s in two methods are modified.
-"""
-
 from typing import Any, Dict, List, Optional
 
 import torch
@@ -14,9 +7,9 @@ from detectron2.structures import Boxes, ImageList, Instances
 
 @ROI_HEADS_REGISTRY.register()
 class CSDStandardROIHeads(StandardROIHeads):
-    """Extends `StandardROIHeads`'s with support for no HNM during training and returning raw predictions.
+    """Extends `StandardROIHeads`'s with support for disabling HNM during training and returning raw predictions.
 
-    Code is largely taken from `StandardROIHeads`."""
+    Both features are required for the CSD loss. Code is largely taken from `StandardROIHeads`."""
 
     def forward(
         self,

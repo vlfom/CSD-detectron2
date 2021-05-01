@@ -1,14 +1,29 @@
-"""TODO: add docs
-"""
-
 import csd.modeling.meta_arch
 import csd.modeling.roi_heads
 import detectron2.data
+import detectron2.utils.comm as comm
 import wandb
 from csd.config import add_csd_config
 from csd.engine import CSDTrainerManager
 from detectron2.config import get_cfg, set_global_cfg
 from detectron2.engine import default_argument_parser, default_setup, launch
+from detectron2.evaluation import verify_results
+
+
+def check_config(cfg):
+    """Checks that provided configuration parameters are supported.
+
+    Note:
+        - for details on parameters,, see `csd.config.config.py`
+        - many additional checks are performed in other files;
+        - checks here are not extensive, but should be still helpful.
+    """
+
+    assert cfg.DATALOADER.ASPECT_RATIO_GROUPING is True
+    assert cfg.DATALOADER.SAMPLER_TRAIN == "TrainingSampler"
+    assert cfg.MODEL.PROPOSAL_GENERATOR.NAME == "RPN"
+    assert cfg.MODEL.KEYPOINT_ON is False
+    assert cfg.MODEL.LOAD_PROPOSALS is None
 
 
 def setup(args):
@@ -27,8 +42,25 @@ def setup(args):
     set_global_cfg(cfg)  # Not really useful in this project, but kept for compatibility
 
     default_setup(cfg, args)
+    check_config(cfg)
 
     return cfg
+
+
+def eval_mode(cfg):
+    """Runs the evaluation-only loop."""
+
+    if cfg.VIS_TEST:
+        assert cfg.USE_WANDB is True, "Visualizations use Wandb, therefore, it must be enabled"
+
+    trainer = CSDTrainerManager(cfg)
+    trainer.resume_or_load(resume=False)
+    res = trainer.test(cfg, trainer._trainer.model)
+    if comm.is_main_process():
+        verify_results(cfg, res)
+    return res
+
+    pass
 
 
 def main(args):
@@ -43,8 +75,8 @@ def main(args):
     else:
         assert cfg.VIS_PERIOD == 0, "Visualizations without Wandb are not supported"
 
-    if args.eval_only:  # TODO: implement eval mode
-        raise NotImplementedError()
+    if args.eval_only:  # TODO: implement eval only mode
+        return eval_mode(cfg)
 
     # Set up the Trainer. I extend DefaultTrainer for managing the training loop. Effectively it's
     # not a trainer itself - it merely wraps the training loop, controls hooks, loading/saving, etc.

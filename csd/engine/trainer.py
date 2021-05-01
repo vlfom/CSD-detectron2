@@ -1,13 +1,19 @@
 import logging
+import os
 import time
 import weakref
 
 import numpy as np
-from csd.data import CSDDatasetMapper, build_ss_train_loader
+import torch
+from csd.data import CSDDatasetMapper, TestDatasetMapper, build_ss_train_loader
 from detectron2.checkpoint import DetectionCheckpointer
+from detectron2.data import MetadataCatalog, build_detection_test_loader
 from detectron2.engine import (DefaultTrainer, SimpleTrainer, TrainerBase,
                                create_ddp_model)
+from detectron2.evaluation import (COCOEvaluator, DatasetEvaluator,
+                                   PascalVOCDetectionEvaluator)
 from detectron2.utils import comm
+from detectron2.utils.events import get_event_storage
 from detectron2.utils.logger import setup_logger
 
 
@@ -65,7 +71,7 @@ class CSDTrainerManager(DefaultTrainer):
         self.max_iter = cfg.SOLVER.MAX_ITER
         self.cfg = cfg
 
-        self.register_hooks(self.build_hooks())  # TODO: add logging of CSD loss
+        self.register_hooks(self.build_hooks())
 
     @classmethod
     def build_train_loader(cls, cfg):
@@ -73,10 +79,30 @@ class CSDTrainerManager(DefaultTrainer):
         dataset_mapper = CSDDatasetMapper(cfg, True)
         return build_ss_train_loader(cfg, dataset_mapper)
 
-    # TODO: should I put it into default trainer derived class or I can later inject it in the training loop?
-    # @classmethod
-    # def build_evaluator(cls, cfg, dataset_name, output_folder=None):
-    #     return get_evaluator(cfg, dataset_name, output_folder)
+    @classmethod
+    def build_test_loader(cls, cfg, dataset_name):
+        """Defines a data loader to use in the testing loop."""
+        dataset_mapper = TestDatasetMapper(cfg, True)
+        return build_detection_test_loader(cfg, dataset_name, mapper=dataset_mapper)
+
+    @classmethod
+    def build_evaluator(cls, cfg, dataset_name, output_folder=None):
+        """Create evaluator(s) for a given dataset.
+
+        Modified from D2's example `tools/train_net.py`"""
+        if output_folder is None:
+            output_folder = os.path.join(cfg.OUTPUT_DIR, "inference")
+
+        evaluator_type = MetadataCatalog.get(dataset_name).evaluator_type
+
+        if evaluator_type == "coco":
+            return COCOEvaluator(dataset_name, output_dir=output_folder)
+        if evaluator_type == "pascal_voc":
+            return PascalVOCDetectionEvaluator(dataset_name)
+
+        raise NotImplementedError(
+            "No evaluator implementation for the dataset {} with the type {}".format(dataset_name, evaluator_type)
+        )
 
 
 class CSDTrainer(SimpleTrainer):
@@ -95,7 +121,7 @@ class CSDTrainer(SimpleTrainer):
         data_labeled, data_unlabeled = next(self._data_loader_iter)
         data_time = time.perf_counter() - start
 
-        # A boolean that indicates whether CSD loss should be calculated at this iteration or not
+        # A boolean that indicates whether CSD loss should be calculated at this iteration
         # See `config.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T0`
         use_csd = self.iter >= self.solver_csd_t0
 
@@ -108,24 +134,27 @@ class CSDTrainer(SimpleTrainer):
         loss_dict = self.model(data_labeled, data_unlabeled, use_csd=use_csd)
 
         self._update_csd_loss_weight()  # CSD weight scheduling (could be a hook though)
+        get_event_storage().put_scalar("csd_weight", self.solver_csd_loss_weight)  # Save for monitoring
 
-        # Sum up the losses
+        # Sum up the supervised losses
         losses_sup = (
             loss_dict["loss_rpn_cls"] + loss_dict["loss_rpn_loc"] + loss_dict["loss_cls"] + loss_dict["loss_box_reg"]
         )
-        if use_csd:
+        get_event_storage().put_scalar("total_sup_loss", losses_sup)  # Save for monitoring
+
+        if use_csd:  # Sum up the CSD losses
             losses_csd = (
                 loss_dict["sup_csd_loss_cls"]
                 + loss_dict["sup_csd_loss_box_reg"]
                 + loss_dict["unsup_csd_loss_cls"]
                 + loss_dict["unsup_csd_loss_box_reg"]
             )
-            loss_dict["total_csd_loss"] = losses_csd  # Save for monitoring
         else:
-            losses_csd = 0
+            _device = loss_dict["loss_rpn_loc"].device
+            losses_csd = torch.zeros(1).to(_device)
+        get_event_storage().put_scalar("total_csd_loss", losses_csd.detach().cpu())  # Save for monitoring
 
-        # TODO: authors use mean() here! Would it even work? Check shape
-        losses = losses_sup + self.solver_csd_loss_weight * losses_csd
+        losses = losses_sup + self.solver_csd_loss_weight * losses_csd  # Calculate the total loss
 
         self.optimizer.zero_grad()
         losses.backward()

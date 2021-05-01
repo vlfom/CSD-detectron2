@@ -29,7 +29,7 @@ def build_ss_train_loader(cfg, mapper):
     Specifically, the DataLoader yields a tuple of lists:
     ([labeled_img, labeled_img_xflip], [unlabeled_im, unlabeled_img_xflip]).
     """
-    # TODO: add support for splitting the same dataset e.g. based on supervision %
+    # TODO: add support for splitting images from the same dataset e.g. based on supervision %
 
     # Wrapper for dataset loader to avoid duplicate code
     load_data_dicts = lambda x: get_detection_dataset_dicts(

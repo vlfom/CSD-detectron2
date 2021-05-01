@@ -23,7 +23,6 @@ def get_evaluator(cfg, dataset_name, output_folder=None):
     if evaluator_type == "pascal_voc":
         return PascalVOCDetectionEvaluator(dataset_name)
 
-    # TODO: add support for additional datasets and segmentation tasks
     raise NotImplementedError(
         "no Evaluator for the dataset {} with the type {}".format(
             dataset_name, evaluator_type
