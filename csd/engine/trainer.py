@@ -2,23 +2,24 @@ import logging
 import os
 import time
 import weakref
+from typing import Dict
 
 import numpy as np
 import torch
 import wandb
 from csd.checkpoint import CSDDetectionCheckpointer
 from csd.data import CSDDatasetMapper, TestDatasetMapper, build_ss_train_loader
-from csd.engine import CSDEvalHook
 from detectron2.checkpoint import DetectionCheckpointer
+from detectron2.config import global_cfg
 from detectron2.data import MetadataCatalog, build_detection_test_loader
-from detectron2.engine import (DefaultTrainer, SimpleTrainer, TrainerBase,
-                               create_ddp_model, hooks)
-from detectron2.evaluation import (COCOEvaluator, DatasetEvaluator,
-                                   PascalVOCDetectionEvaluator)
+from detectron2.engine import DefaultTrainer, SimpleTrainer, TrainerBase, create_ddp_model, hooks
+from detectron2.evaluation import COCOEvaluator, DatasetEvaluator, PascalVOCDetectionEvaluator
 from detectron2.utils import comm
 from detectron2.utils.events import get_event_storage
 from detectron2.utils.logger import setup_logger
 from fvcore.nn.precise_bn import get_bn_modules
+
+from .hooks import CSDEvalHook
 
 
 class CSDTrainerManager(DefaultTrainer):
@@ -115,7 +116,7 @@ class CSDTrainerManager(DefaultTrainer):
 
         # Do evaluation after checkpointer, because then if it fails,
         # we can use the saved checkpoint to debug.
-        ret.append(hooks.CSDEvalHook(cfg.TEST.EVAL_PERIOD, test_and_save_results))  # CSD: replace eval hook
+        ret.append(CSDEvalHook(cfg.TEST.EVAL_PERIOD, test_and_save_results))  # CSD: replace eval hook
 
         if comm.is_main_process():
             # Here the default print/log frequency of each writer is used.
@@ -182,6 +183,7 @@ class CSDTrainer(SimpleTrainer):
         # - "sup_csd_loss_box_reg": CSD consistency loss for localization on labeled data
         # - "unsup_csd_loss_cls", "unsup_csd_loss_box_reg": CSD losses on unlabeled data
         loss_dict = self.model(data_labeled, data_unlabeled, use_csd=use_csd)
+        wandb_metrics_dict = {}  # Dict to store metrics for Wandb in addition to storage
 
         self._update_csd_loss_weight()  # CSD weight scheduling (could be a hook though)
         get_event_storage().put_scalar("csd_weight", self.solver_csd_loss_weight)  # Save for monitoring
@@ -275,8 +277,24 @@ class CSDTrainer(SimpleTrainer):
                 storage.put_scalars(**metrics_dict)
 
                 # CSD: log values to Wandb
-                try:
-                    iter_ = get_event_storage().iter
-                except:  # There is no iter when in eval mode - set to 1
-                    iter_ = 1
-                wandb.log(metrics_dict, step=iter_)
+                if storage.iter % global_cfg.WANDB_LOG_FREQ == 0:  # Check logging frequency
+                    keys = [  # Add additional values from default storage to Wandb logs
+                        "lr",
+                        "fast_rcnn/cls_accuracy",
+                        "fast_rcnn/false_negative",
+                        "fast_rcnn/fg_cls_accuracy",
+                        "roi_head/num_bg_samples",
+                        "roi_head/num_fg_samples",
+                        "rpn/num_neg_anchors",
+                        "rpn/num_pos_anchors",
+                        "csd_weight",
+                        "total_sup_loss",
+                        "total_csd_loss",
+                        "data_time",
+                        "{}total_loss".format(prefix),
+                    ]
+                    for k in keys:
+                        if k in storage.latest():
+                            metrics_dict[k] = storage.latest()[k][0]
+                    metrics_dict["iter"] = storage.iter
+                    wandb.log(metrics_dict, step=storage.iter)

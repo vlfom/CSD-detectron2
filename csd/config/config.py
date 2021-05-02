@@ -9,7 +9,7 @@ def add_csd_config(cfg):
     cfg.MODEL.ROI_HEADS.NAME = "CSDStandardROIHeads"
 
     ### Solver parameters
-    # Note: with CSD enabled, the "effective" batch size (in terms of memory) is twice larger as images get flipped
+    # Note: with CSD enabled, the "effective" batch size (in terms of memory used) is twice larger as images get flipped
     cfg.SOLVER.IMS_PER_BATCH = 8
     cfg.SOLVER.IMS_PER_BATCH_LABELED = 4
     cfg.SOLVER.IMS_PER_BATCH_UNLABELED = 4
@@ -38,8 +38,9 @@ def add_csd_config(cfg):
     # Note: visualizations work only with Wandb and when a **single** dataset is used, when using multiple datasets
     # comment this out or see & modify `CSDGeneralizedRCNN._log_visualization_to_wandb`
     cfg.USE_WANDB = True  # Comment this out if you don't want to use Wandb
-    cfg.WANDB_PROJECT_NAME = "csd-detectron2"
-    cfg.VIS_PERIOD = 200  # Plot training results each <> iterations (sends them to Wandb)
+    cfg.WANDB_PROJECT_NAME = "csd-detectron2"  # Wandb project name to log the run to
+    cfg.WANDB_LOG_FREQ = 30  # Logging frequency, not recommended to set lower than 20
+    cfg.VIS_PERIOD = 300  # Plot training results each <> iterations (sends them to Wandb)
     # # images to plot per visualization run "group", i.e. for RPN/ROI plots how many examples to show; 3 nicely fits in Wandb
     cfg.VIS_IMS_PER_GROUP = 3
     cfg.VIS_MAX_PREDS_PER_IM = 40  # Maximum number of bounding boxes per image in visualization

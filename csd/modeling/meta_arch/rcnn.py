@@ -307,9 +307,12 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         # Ignore bboxes for which background is the class with the largest probability
         # based on the non-flipped image
         bkg_scores = class_scores[:, -1]
-        mask = bkg_scores < class_scores.max(1).values
+        if len(class_scores) > 0:
+            mask = bkg_scores < class_scores.max(1).values
 
-        if mask.sum() == 0:  # All bboxes are classified as bkg - return 0s
+        if (  # Predictions are empty or all bboxes are classified as bkg - return 0s
+            len(class_scores) == 0 or mask.sum() == 0
+        ):
             csd_class_loss = csd_loc_loss = torch.zeros(1).to(self.device)
         else:
             ### Calculate CSD classification loss
@@ -551,9 +554,9 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
 
         try:  # Get current iteration
             iter_ = get_event_storage().iter
-        except:  # There is no iter when in eval mode - set to 1
-            iter_ = 1
-            
+        except:  # There is no iter when in eval mode - set to
+            iter_ = 0
+
         wandb_img = wandb.Image(image, boxes=viz_meta)  # Send to wandb
         wandb.log({f"{predictions_mode}_predictions{im_suffix}": wandb_img}, step=iter_)
 

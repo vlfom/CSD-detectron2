@@ -30,10 +30,12 @@ class CSDEvalHook(EvalHook):
             self.trainer.storage.put_scalars(**flattened_results, smoothing_hint=False)
 
             # CSD: log values to Wandb
-            try:
+
+            # CSD: log values to Wandb
+            try:  # Get current iteration
                 iter_ = get_event_storage().iter
-            except:  # There is no iter when in eval mode - set to 1
-                iter_ = 1
+            except:  # There is no iter when in eval mode - set to 0
+                iter_ = 0
             wandb.log(flattened_results, step=iter_)
 
         # Evaluation may take different time among workers.
