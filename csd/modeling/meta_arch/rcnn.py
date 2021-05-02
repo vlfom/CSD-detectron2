@@ -18,7 +18,7 @@ from PIL import Image
 
 @META_ARCH_REGISTRY.register()
 class CSDGeneralizedRCNN(GeneralizedRCNN):
-    """Extends `GeneralizedRCNN`'s forward pass with additional logic for CSD."""
+    """Extends `GeneralizedRCNN`'s with additional logic for CSD."""
 
     def forward(
         self,
@@ -26,7 +26,7 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         batched_inputs_unlabeled: List[Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]] = None,
         use_csd: Any = False,
     ):
-        """Performs a standard forward pass along with CSD logic and returns resulting losses.
+        """Performs a standard forward pass along with CSD and returns resulting losses.
 
         Args:
             batched_inputs_labeled: a list, batched instances from :class:`csd.data.CSDDatasetMapper`.
