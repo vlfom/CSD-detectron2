@@ -49,7 +49,7 @@ You can also use the script provided inside the `datasets/` folder to download V
 
 To reproduce baseline results (without visualizations), run the command below:
 ```python
-python tools/run_baseline.py --num-gpus 4 --config configs/baseline_VOC07_R50_RFCN.yaml
+python tools/run_baseline.py --num-gpus 4 --config configs/voc/baseline_VOC07_R50_RFCN.yaml
 ```
 
 The `run_baseline.py` script is a duplicate of D2's `tools/train_net.py` ([link](https://github.com/facebookresearch/detectron2/blob/master/tools/train_net.py)), I only add a few lines of code enable Wandb logging of scalars.
@@ -58,21 +58,23 @@ I used a configuration that D2 provides for training on VOC07+12 in [PascalVOC-D
 
 To speed up the experiments, for this project it was decided to use a model trained **only on VOC07 trainval** and use VOC07 test for testing.
 
-I noticed that when using the default D2's VOC07+12 configuration with VOC07 data only the model overfitted halfway through training, so I decided to modify the training duration. The final configuration for the baseline can be found in `configs/baseline_VOC07_R50_RFCN.yaml` (it extends the default one mentioned above that I renamed and put as `configs/default_VOC0712_R50_RFCN.yaml`).
+I noticed that when using the default D2's VOC07+12 configuration with VOC07 data only the model overfitted halfway through training, so I decided to modify the training duration. The final configuration for the baseline can be found in `configs/voc/baseline_VOC07_R50_RFCN.yaml` (it extends the default one mentioned above that I renamed and put as `configs/voc/default_VOC0712_R50_RFCN.yaml`).
 
 ### CSD
 
 Run the command below to train a model with CSD on VOC07 trainval (labeled) and VOC12 (unlabeled):
 ```python
-python tools/run_net.py --num-gpus 4 --config configs/csd_L=VOC07_U=VOC12_R50_RFCN.yaml
+python tools/run_net.py --num-gpus 4 --config configs/voc/csd_L=VOC07_U=VOC12_R50_RFCN.yaml
 ```
+
+If you get an error `ModuleNotFoundError: No module named 'csd'`, you can add `PYTHONPATH=<prefix>/CSD-detectron2` to the beginninng of the command.
 
 To *resume* the training, you can run the following (note: the current iteration is also checkpointed in D2):
 ```python
-python tools/run_net.py --resume --num-gpus 4 --config configs/csd_L=VOC07_U=VOC12_R50_RFCN.yaml MODEL.WEIGHTS output/your_model_weights.pt
+python tools/run_net.py --resume --num-gpus 4 --config configs/voc/csd_L=VOC07_U=VOC12_R50_RFCN.yaml MODEL.WEIGHTS output/your_model_weights.pt
 ```
 
-Note that the configuration file `configs/csd_L=VOC07_U=VOC12_R50_RFCN.yaml` extends the baseline's `configs/baseline_VOC07_R50_RFCN.yaml` so one can compare what exactly was modified.
+Note that the configuration file `configs/voc/csd_L=VOC07_U=VOC12_R50_RFCN.yaml` extends the baseline's `configs/voc/baseline_VOC07_R50_RFCN.yaml` so one can compare what exactly was modified.
 
 The details for all the configuration parameters can be found in `csd/config/config.py`. I tried to document most of parameters and after checking the CSD paper and its supplementary you should have no problems with understanding them (also, the code is extensively documented).
 
@@ -82,7 +84,7 @@ It is recommended to experiment with parameters, as I ran only several configura
 
 Run the command below to evaluate your model on VOC07 test dataset:
 ```python
-python tools/run_net.py --eval-only --config configs/csd_L=VOC07_U=VOC12_R50_RFCN.yaml MODEL.WEIGHTS output/your_model_weights.pt
+python tools/run_net.py --eval-only --config configs/voc/csd_L=VOC07_U=VOC12_R50_RFCN.yaml MODEL.WEIGHTS output/your_model_weights.pt
 ```
 
 # Results
@@ -99,7 +101,7 @@ I tried to leave extensive comments in each file so there should be no problem w
 The main files to check are:
 
 - `tools/run_net.py` the starting script that loads the configuration, initializes Wandb, creates the trainer manager and the model, and starts the training/evaluation loop;
-- `csd/config/config.py` defines the project-specific configuration; note: parameters in this file define default parameters, they are repeated in `configs/csd_L=VOC07_U=VOC12_R50_RFCN.yaml` simply for convenience (e.g. running `python tools/run_net.py --num-gpus 4` should give you the same CSD results);
+- `csd/config/config.py` defines the project-specific configuration; note: parameters in this file define default parameters, they are repeated in `configs/voc/csd_L=VOC07_U=VOC12_R50_RFCN.yaml` simply for convenience (e.g. running `python tools/run_net.py --num-gpus 4` should give you the same CSD results);
 - `csd/engine/trainer.py` contains the implementation of the training loop; `CSDTrainerManager` controls the training process taking care of data loaders/checkpointing/hooks/etc., while `CSDTrainer` runs the actual training loop; as in many other files, I extend D2's default classes such as `DefaultTrainer` and `SimpleTrainer`, overriding some of their methods, modifying only the needed parts;
 - `csd/engine/hooks.py` and `csd/engine/evaluator.py` contain several minor modifications relevant for Wandb logging only;
 - `csd/checkpoint/detection_checkpoint.py` contains several minor modifications relevant for Wandb logging only;

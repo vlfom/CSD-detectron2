@@ -68,12 +68,13 @@ def main(args):
 
     cfg = setup(args)
 
-    if comm.is_main_process() and cfg.USE_WANDB:
-        # Set up wandb (for tracking visualizations)
-        wandb.login()
-        wandb.init(project=cfg.WANDB_PROJECT_NAME, config=cfg)
-    else:
-        assert cfg.VIS_PERIOD == 0, "Visualizations without Wandb are not supported"
+    if comm.is_main_process():
+        if cfg.USE_WANDB:
+            # Set up wandb (for tracking scalars and visualizations)
+            wandb.login()
+            wandb.init(project=cfg.WANDB_PROJECT_NAME, config=cfg)
+        else:
+            assert cfg.VIS_PERIOD == 0, "Visualizations without Wandb are not supported"
 
     if args.eval_only:  # TODO: implement eval only mode
         return eval_mode(cfg)

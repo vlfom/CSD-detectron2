@@ -12,8 +12,10 @@ from csd.data import CSDDatasetMapper, TestDatasetMapper, build_ss_train_loader
 from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.config import global_cfg
 from detectron2.data import MetadataCatalog, build_detection_test_loader
-from detectron2.engine import DefaultTrainer, SimpleTrainer, TrainerBase, create_ddp_model, hooks
-from detectron2.evaluation import COCOEvaluator, DatasetEvaluator, PascalVOCDetectionEvaluator
+from detectron2.engine import (DefaultTrainer, SimpleTrainer, TrainerBase,
+                               create_ddp_model, hooks)
+from detectron2.evaluation import (COCOEvaluator, DatasetEvaluator,
+                                   PascalVOCDetectionEvaluator)
 from detectron2.utils import comm
 from detectron2.utils.events import get_event_storage
 from detectron2.utils.logger import setup_logger
@@ -183,29 +185,18 @@ class CSDTrainer(SimpleTrainer):
         # - "sup_csd_loss_box_reg": CSD consistency loss for localization on labeled data
         # - "unsup_csd_loss_cls", "unsup_csd_loss_box_reg": CSD losses on unlabeled data
         loss_dict = self.model(data_labeled, data_unlabeled, use_csd=use_csd)
-        wandb_metrics_dict = {}  # Dict to store metrics for Wandb in addition to storage
 
-        self._update_csd_loss_weight()  # CSD weight scheduling (could be a hook though)
-        get_event_storage().put_scalar("csd_weight", self.solver_csd_loss_weight)  # Save for monitoring
+        self._update_csd_loss_weight()  # Call CSD weight scheduling (could be a hook though)
 
-        # Sum up the supervised losses
-        losses_sup = (
+        losses_sup = (  # Sum up the supervised losses
             loss_dict["loss_rpn_cls"] + loss_dict["loss_rpn_loc"] + loss_dict["loss_cls"] + loss_dict["loss_box_reg"]
         )
-        get_event_storage().put_scalar("total_sup_loss", losses_sup)  # Save for monitoring
-
-        if use_csd:  # Sum up the CSD losses
-            losses_csd = (
-                loss_dict["sup_csd_loss_cls"]
-                + loss_dict["sup_csd_loss_box_reg"]
-                + loss_dict["unsup_csd_loss_cls"]
-                + loss_dict["unsup_csd_loss_box_reg"]
-            )
-        else:
-            _device = loss_dict["loss_rpn_loc"].device
-            losses_csd = torch.zeros(1).to(_device)
-        get_event_storage().put_scalar("total_csd_loss", losses_csd.detach().cpu())  # Save for monitoring
-
+        losses_csd = (  # Sum up the CSD losses
+            loss_dict["sup_csd_loss_cls"]
+            + loss_dict["sup_csd_loss_box_reg"]
+            + loss_dict["unsup_csd_loss_cls"]
+            + loss_dict["unsup_csd_loss_box_reg"]
+        )
         losses = losses_sup + self.solver_csd_loss_weight * losses_csd  # Calculate the total loss
 
         self.optimizer.zero_grad()
@@ -218,30 +209,34 @@ class CSDTrainer(SimpleTrainer):
         self.optimizer.step()
 
     def _update_csd_loss_weight(self):
-        """Controls weight scheduling for the CSD loss: updates the weight coefficient at each iteration."""
+        """Controls weight scheduling for the CSD loss: updates the weight coefficient at each iteration.
+        
+        See CSD paper abstract for more details.
+        """
 
         if self.iter < self.solver_csd_t0:
             self.solver_csd_loss_weight = 0
         elif self.iter < self.solver_csd_t1:
             self.solver_csd_loss_weight = (
-                np.exp(-5 * np.power((1 - self.iter / self.solver_csd_t1), 2)) * self.solver_csd_beta
+                np.exp(
+                    -5
+                    * np.power((1 - (self.iter - self.solver_csd_t0) / (self.solver_csd_t1 - self.solver_csd_t0)), 2)
+                )
+                * self.solver_csd_beta
             )
-        elif self.iter < self.solver_csd_t - self.solver_csd_t2:
+        elif self.iter < self.solver_csd_t2:
             self.solver_csd_loss_weight = self.solver_csd_beta
         else:
             self.solver_csd_loss_weight = (
                 np.exp(
                     -12.5
-                    * np.power((1 - (self.solver_csd_t - self.iter) / (self.solver_csd_t - self.solver_csd_t2)), 2)
+                    * np.power((1 - (self.solver_csd_t - self.iter) / (self.solver_csd_t - self.solver_csd_t2)), 2,)
                 )
                 * self.solver_csd_beta
             )
 
     def _write_metrics(
-        self,
-        loss_dict: Dict[str, torch.Tensor],
-        data_time: float,
-        prefix: str = "",
+        self, loss_dict: Dict[str, torch.Tensor], data_time: float, prefix: str = "",
     ):
         """Adds several lines of code to log metrics to Wandb.
 
@@ -277,6 +272,24 @@ class CSDTrainer(SimpleTrainer):
                 storage.put_scalars(**metrics_dict)
 
                 # CSD: log values to Wandb
+
+                # Put some additional scalars first
+                storage.put_scalar("csd_weight", self.solver_csd_loss_weight)  # CSD loss weight
+                storage.put_scalar(  # Sum of the supervised losses
+                    "total_sup_loss",
+                    metrics_dict["loss_rpn_cls"]
+                    + metrics_dict["loss_rpn_loc"]
+                    + metrics_dict["loss_cls"]
+                    + metrics_dict["loss_box_reg"],
+                )
+                storage.put_scalar(  # Sum of the CSD losses
+                    "total_csd_loss",
+                    metrics_dict["sup_csd_loss_cls"]
+                    + metrics_dict["sup_csd_loss_box_reg"]
+                    + metrics_dict["unsup_csd_loss_cls"]
+                    + metrics_dict["unsup_csd_loss_box_reg"],
+                )
+
                 if storage.iter % global_cfg.WANDB_LOG_FREQ == 0:  # Check logging frequency
                     keys = [  # Add additional values from default storage to Wandb logs
                         "lr",
@@ -296,5 +309,5 @@ class CSDTrainer(SimpleTrainer):
                     for k in keys:
                         if k in storage.latest():
                             metrics_dict[k] = storage.latest()[k][0]
-                    metrics_dict["iter"] = storage.iter
+                    metrics_dict["iter"] = metrics_dict["global_step"] = storage.iter
                     wandb.log(metrics_dict, step=storage.iter)

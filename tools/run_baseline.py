@@ -132,7 +132,7 @@ def main(args):
 
     if comm.is_main_process() and cfg.USE_WANDB:  # Set up wandb (for tracking visualizations)
         wandb.login()
-        wandb.init(project=cfg.WANDB_PROJECT_NAME, config=cfg)
+        wandb.init(project=cfg.WANDB_PROJECT_NAME, config=cfg, sync_tensorboard=True)
 
     if args.eval_only:
         model = Trainer.build_model(cfg)

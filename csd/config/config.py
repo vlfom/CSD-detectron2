@@ -14,7 +14,11 @@ def add_csd_config(cfg):
     cfg.SOLVER.IMS_PER_BATCH_LABELED = 4
     cfg.SOLVER.IMS_PER_BATCH_UNLABELED = 4
 
-    # Recommended CSD weighting values for VOC dataset from the CSD paper, see their supplementary
+    # CSD weight scheduling parameters (see their supplementary)
+    # Note that here we change the notationn - T0 defines the number of iterations until the weight is zero,
+    # T1 and T2 define the absolute number of iterations when to start ramp up and ramp down of the weight,
+    # and T defines the target iteration when the weight is expected to finish ramping down (note: it's OK if
+    # it's less than `SOLVER.NUM_ITER`)
     cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_BETA = 1.0  # Base multiplier for CSD weights (not mentioned in the paper)
     cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T0 = 1  # Train for one iteration without CSD loss
     cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T1 = 5000

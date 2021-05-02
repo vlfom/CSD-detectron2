@@ -1,4 +1,4 @@
-# Detectron2's default configuration for RCNN FPN
+# A duplicate of:
 # https://github.com/facebookresearch/detectron2/blob/master/configs/Base-RCNN-FPN.yaml
 
 MODEL:
@@ -41,7 +41,5 @@ SOLVER:
   STEPS: (60000, 80000)
   MAX_ITER: 90000
 INPUT:
-  MIN_SIZE_TRAIN: (400, 500, 600, 700, 800)
+  MIN_SIZE_TRAIN: (640, 672, 704, 736, 768, 800)
 VERSION: 2
-TEST:
-  EVAL_PERIOD: 1000

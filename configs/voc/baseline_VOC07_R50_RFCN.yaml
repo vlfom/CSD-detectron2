@@ -1,3 +1,5 @@
+# Baseline configuration for RFCN training on VOC07
+
 _BASE_: "default_VOC0712_R50_RFCN.yaml"
 DATASETS:
   TRAIN: ('voc_2007_trainval',)  # Train on VOC07 only

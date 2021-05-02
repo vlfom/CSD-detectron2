@@ -28,15 +28,15 @@ class CSDEvalHook(EvalHook):
                         "Got '{}: {}' instead.".format(k, v)
                     ) from e
             self.trainer.storage.put_scalars(**flattened_results, smoothing_hint=False)
-
+    
             # CSD: log values to Wandb
-
-            # CSD: log values to Wandb
-            try:  # Get current iteration
-                iter_ = get_event_storage().iter
-            except:  # There is no iter when in eval mode - set to 0
-                iter_ = 0
-            wandb.log(flattened_results, step=iter_)
+            if comm.is_main_process():
+                try:  # Get current iteration
+                    iter_ = get_event_storage().iter
+                except:  # There is no iter when in eval mode - set to 0
+                    iter_ = 0
+                flattened_results["global_step"] = iter_
+                wandb.log(flattened_results, step=iter_)
 
         # Evaluation may take different time among workers.
         # A barrier make them start the next iteration together.

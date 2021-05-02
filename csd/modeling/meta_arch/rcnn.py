@@ -12,6 +12,7 @@ from detectron2.data.detection_utils import convert_image_to_rgb
 from detectron2.modeling.meta_arch import GeneralizedRCNN
 from detectron2.modeling.meta_arch.build import META_ARCH_REGISTRY
 from detectron2.structures import Boxes, ImageList, Instances
+from detectron2.utils import comm
 from detectron2.utils.events import get_event_storage
 from PIL import Image
 
@@ -84,7 +85,7 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         losses = {}  # Placeholder for future loss accumulation
 
         # Indicates whether visualizations should be saved at this iteration
-        do_visualize = self.vis_period and (get_event_storage().iter % self.vis_period == 0)
+        do_visualize = comm.is_main_process() and self.vis_period and (get_event_storage().iter % self.vis_period == 0)
 
         ### Split labeled & unlabeled inputs and their flipped versions into separate variables
         labeled_inp, labeled_inp_flip = zip(*batched_inputs_labeled)
@@ -187,7 +188,7 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
         assert not self.training
 
         # Indicates whether visualizations should be generated for the current image
-        do_visualize = self._inference_decide_visualization()
+        do_visualize = comm.is_main_process() and self._inference_decide_visualization()
 
         images = self.preprocess_image(batched_inputs)
         features = self.backbone(images.tensor)
@@ -558,7 +559,7 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             iter_ = 0
 
         wandb_img = wandb.Image(image, boxes=viz_meta)  # Send to wandb
-        wandb.log({f"{predictions_mode}_predictions{im_suffix}": wandb_img}, step=iter_)
+        wandb.log({f"{predictions_mode}_predictions{im_suffix}": wandb_img, "global_step": iter_}, step=iter_)
 
     def _bbox_to_wandb_dict(self, xyxy_bbox, class_id, class_id_to_label, image_shape, scores=None):
         """Converts provided variables to wandb bbox-visualization format.
