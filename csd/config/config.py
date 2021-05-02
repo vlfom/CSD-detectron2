@@ -22,15 +22,13 @@ def add_csd_config(cfg):
     # Note: even though `T` represents the total number of iterations, it's safe to continue training after `T` iters
     cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T = 20000
 
-    cfg.SOLVER.MAX_ITER = 20000  # D2's default for VOC is 18000
-
     ### Dataset parameters
     # Default datasets are VOC07+12 for training and VOC07 for testing
     # Note only VOC and COCO for object detection are currently supported
     # TODO: test COCO; add support for segmentation
     cfg.DATASETS.TRAIN = ("voc_2007_trainval",)
     cfg.DATASETS.TRAIN_UNLABELED = ("voc_2012_trainval",)
-    # Only VOC and COCO are currently supported for evaluation; also only a **sigle** evaluation dataset
+    # Only VOC and COCO are currently supported for evaluation; also only a **single** evaluation dataset
     # is supported (for visualization reasons; if you turn it off, multiple datasets should work)
     cfg.DATASETS.TEST = ("voc_2007_test",)
 
@@ -45,7 +43,6 @@ def add_csd_config(cfg):
     cfg.VIS_IMS_PER_GROUP = 3
     cfg.VIS_MAX_PREDS_PER_IM = 40  # Maximum number of bounding boxes per image in visualization
     cfg.VIS_TEST = True  # Visualize outputs during inference as well
-    cfg.TEST.EVAL_PERIOD = 1000
 
     ### Other parameters
     # Note: for the parameters below only the provided values are supported, changing them may (should) break the code;

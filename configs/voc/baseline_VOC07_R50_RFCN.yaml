@@ -1,0 +1,9 @@
+_BASE_: "default_VOC0712_R50_RFCN.yaml"
+DATASETS:
+  TRAIN: ('voc_2007_trainval',)  # Train on VOC07 only
+SOLVER:
+  CHECKPOINT_PERIOD: 2000  # Dump the model weights more often
+TEST:
+  EVAL_PERIOD: 1000  # Evaluate more often
+USE_WANDB: True  # Enable logging scalars to Wandb
+WANDB_PROJECT_NAME: "csd-detectron2"

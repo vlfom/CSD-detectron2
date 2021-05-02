@@ -47,16 +47,18 @@ You can also use the script provided inside the `datasets/` folder to download V
 
 ### Baseline
 
-To reproduce baseline results, run the command below:
+To reproduce baseline results (without visualizations), run the command below:
 ```python
 python tools/run_baseline.py --num-gpus 4 --config configs/baseline_VOC07_R50_RFCN.yaml
 ```
+
+The `run_baseline.py` script is a duplicate of D2's `tools/train_net.py` ([link](https://github.com/facebookresearch/detectron2/blob/master/tools/train_net.py)), I only add a few lines of code enable Wandb logging of scalars.
 
 I used a configuration that D2 provides for training on VOC07+12 in [PascalVOC-Detection/faster_rcnn_R_50_FPN.yaml](https://github.com/facebookresearch/detectron2/blob/master/configs/PascalVOC-Detection/faster_rcnn_R_50_FPN.yaml) and slightly modified it. [They report](https://github.com/facebookresearch/detectron2/blob/master/MODEL_ZOO.md#cityscapes--pascal-voc-baselines) reaching 51.9 mAP on VOC07 test when training on VOC07+12 trainval.
 
 To speed up the experiments, for this project it was decided to use a model trained **only on VOC07 trainval** and use VOC07 test for testing.
 
-I noticed that when using the default D2's VOC07+12 configuration with VOC07 data only the model overfitted halfway through training, so I decided to modify the training duration. The final configuration for the baseline can be found in `configs/baseline_VOC07_R50_RFCN.yaml` (it extends the default one mentioned above that I renamed and put as `configs/default_R50_RFCN.yaml`).
+I noticed that when using the default D2's VOC07+12 configuration with VOC07 data only the model overfitted halfway through training, so I decided to modify the training duration. The final configuration for the baseline can be found in `configs/baseline_VOC07_R50_RFCN.yaml` (it extends the default one mentioned above that I renamed and put as `configs/default_VOC0712_R50_RFCN.yaml`).
 
 ### CSD
 
@@ -69,6 +71,8 @@ To *resume* the training, you can run the following (note: the current iteration
 ```python
 python tools/run_net.py --resume --num-gpus 4 --config configs/csd_L=VOC07_U=VOC12_R50_RFCN.yaml MODEL.WEIGHTS output/your_model_weights.pt
 ```
+
+Note that the configuration file `configs/csd_L=VOC07_U=VOC12_R50_RFCN.yaml` extends the baseline's `configs/baseline_VOC07_R50_RFCN.yaml` so one can compare what exactly was modified.
 
 The details for all the configuration parameters can be found in `csd/config/config.py`. I tried to document most of parameters and after checking the CSD paper and its supplementary you should have no problems with understanding them (also, the code is extensively documented).
 
