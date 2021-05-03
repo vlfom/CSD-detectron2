@@ -1,8 +1,7 @@
 import operator
 
 import torch
-from detectron2.data.build import (get_detection_dataset_dicts,
-                                   worker_init_reset_seed)
+from detectron2.data.build import get_detection_dataset_dicts, worker_init_reset_seed
 from detectron2.data.common import AspectRatioGroupedDataset, MapDataset
 from detectron2.data.dataset_mapper import DatasetMapper
 from detectron2.data.samplers import TrainingSampler

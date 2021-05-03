@@ -8,6 +8,7 @@ from csd.engine import CSDTrainerManager
 from detectron2.config import get_cfg, set_global_cfg
 from detectron2.engine import default_argument_parser, default_setup, launch
 from detectron2.evaluation import verify_results
+from detectron2.utils.env import seed_all_rng
 
 
 def check_config(cfg):
@@ -23,7 +24,7 @@ def check_config(cfg):
     assert cfg.DATALOADER.SAMPLER_TRAIN == "TrainingSampler"
     assert cfg.MODEL.PROPOSAL_GENERATOR.NAME == "RPN"
     assert cfg.MODEL.KEYPOINT_ON is False
-    assert cfg.MODEL.LOAD_PROPOSALS is None
+    assert cfg.MODEL.LOAD_PROPOSALS is False
 
 
 def setup(args):
@@ -39,7 +40,7 @@ def setup(args):
     ), "Total number of images per batch must be equal to the sum of labeled and unlabeled images per batch"
 
     cfg.freeze()
-    set_global_cfg(cfg)  # Not really useful in this project, but kept for compatibility
+    set_global_cfg(cfg)  # Set up "global" access for config
 
     default_setup(cfg, args)
     check_config(cfg)
@@ -58,25 +59,25 @@ def eval_mode(cfg):
     res = trainer.test(cfg, trainer._trainer.model)
     if comm.is_main_process():
         verify_results(cfg, res)
-    return res
 
-    pass
+    return res
 
 
 def main(args):
     """Sets up config, instantiates trainer, and uses it to start the training loop"""
 
+    seed_all_rng(42)  # Fix seed; TODO: remove
+
     cfg = setup(args)
 
     if comm.is_main_process():
-        if cfg.USE_WANDB:
-            # Set up wandb (for tracking scalars and visualizations)
+        if cfg.USE_WANDB:  # Set up wandb (for tracking scalars and visualizations)
             wandb.login()
-            wandb.init(project=cfg.WANDB_PROJECT_NAME, config=cfg)
+            wandb.init(project=cfg.WANDB_PROJECT_NAME, config=cfg, sync_tensorboard=True)
         else:
             assert cfg.VIS_PERIOD == 0, "Visualizations without Wandb are not supported"
 
-    if args.eval_only:  # TODO: implement eval only mode
+    if args.eval_only:  # Run evaluation
         return eval_mode(cfg)
 
     # Set up the Trainer. I extend DefaultTrainer for managing the training loop. Effectively it's
@@ -91,7 +92,6 @@ def main(args):
 
 if __name__ == "__main__":
     args = default_argument_parser().parse_args()
-
     print("Command Line Args:", args)
     launch(
         main,

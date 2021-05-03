@@ -6,22 +6,17 @@ from typing import Dict
 
 import numpy as np
 import torch
-import wandb
 from csd.checkpoint import CSDDetectionCheckpointer
-from csd.data import CSDDatasetMapper, TestDatasetMapper, build_ss_train_loader
-from detectron2.checkpoint import DetectionCheckpointer
-from detectron2.config import global_cfg
-from detectron2.data import MetadataCatalog, build_detection_test_loader
+from csd.data import CSDDatasetMapper, build_ss_train_loader
+from csd.utils import WandbWriter
+from detectron2.data import MetadataCatalog
 from detectron2.engine import (DefaultTrainer, SimpleTrainer, TrainerBase,
-                               create_ddp_model, hooks)
-from detectron2.evaluation import (COCOEvaluator, DatasetEvaluator,
-                                   PascalVOCDetectionEvaluator)
+                               create_ddp_model)
+from detectron2.evaluation import COCOEvaluator, PascalVOCDetectionEvaluator
 from detectron2.utils import comm
-from detectron2.utils.events import get_event_storage
+from detectron2.utils.events import (CommonMetricPrinter, JSONWriter,
+                                     TensorboardXWriter, get_event_storage)
 from detectron2.utils.logger import setup_logger
-from fvcore.nn.precise_bn import get_bn_modules
-
-from .hooks import CSDEvalHook
 
 
 class CSDTrainerManager(DefaultTrainer):
@@ -80,63 +75,11 @@ class CSDTrainerManager(DefaultTrainer):
 
         self.register_hooks(self.build_hooks())
 
-    def build_hooks(self):
-        """Changes one hook from `DefaultTrainer.build_hooks()` to enable Wandb logging.
-
-        See `DefaultTrainer.build_hooks` for all details, changes are commented with "CSD: ...".
-        """
-
-        cfg = self.cfg.clone()
-        cfg.defrost()
-        cfg.DATALOADER.NUM_WORKERS = 0  # save some memory and time for PreciseBN
-
-        ret = [
-            hooks.IterationTimer(),
-            hooks.LRScheduler(),
-            hooks.PreciseBN(
-                # Run at the same freq as (but before) evaluation.
-                cfg.TEST.EVAL_PERIOD,
-                self.model,
-                # Build a new data loader to not affect training
-                self.build_train_loader(cfg),
-                cfg.TEST.PRECISE_BN.NUM_ITER,
-            )
-            if cfg.TEST.PRECISE_BN.ENABLED and get_bn_modules(self.model)
-            else None,
-        ]
-
-        # Do PreciseBN before checkpointer, because it updates the model and need to
-        # be saved by checkpointer.
-        # This is not always the best: if checkpointing has a different frequency,
-        # some checkpoints may have more precise statistics than others.
-        if comm.is_main_process():
-            ret.append(hooks.PeriodicCheckpointer(self.checkpointer, cfg.SOLVER.CHECKPOINT_PERIOD))
-
-        def test_and_save_results():
-            self._last_eval_results = self.test(self.cfg, self.model)
-            return self._last_eval_results
-
-        # Do evaluation after checkpointer, because then if it fails,
-        # we can use the saved checkpoint to debug.
-        ret.append(CSDEvalHook(cfg.TEST.EVAL_PERIOD, test_and_save_results))  # CSD: replace eval hook
-
-        if comm.is_main_process():
-            # Here the default print/log frequency of each writer is used.
-            # run writers in the end, so that evaluation metrics are written
-            ret.append(hooks.PeriodicWriter(self.build_writers(), period=20))
-        return ret
-
     @classmethod
     def build_train_loader(cls, cfg):
         """Defines a data loader to use in the training loop."""
         dataset_mapper = CSDDatasetMapper(cfg, True)
         return build_ss_train_loader(cfg, dataset_mapper)
-
-    @classmethod
-    def build_test_loader(cls, cfg, dataset_name):
-        """Defines a data loader to use in the testing loop."""
-        dataset_mapper = TestDatasetMapper(cfg, True)
-        return build_detection_test_loader(cfg, dataset_name, mapper=dataset_mapper)
 
     @classmethod
     def build_evaluator(cls, cfg, dataset_name, output_folder=None):
@@ -157,6 +100,23 @@ class CSDTrainerManager(DefaultTrainer):
             "No evaluator implementation for the dataset {} with the type {}".format(dataset_name, evaluator_type)
         )
 
+    def build_writers(self):
+        """Extends default writers with a Wandb writer if Wandb logging was enabled.
+
+        See `d2.engine.DefaultTrainer.build_writers` for more details.
+        """
+
+        writers = [
+            CommonMetricPrinter(self.max_iter),
+            JSONWriter(os.path.join(self.cfg.OUTPUT_DIR, "metrics.json")),
+            TensorboardXWriter(self.cfg.OUTPUT_DIR),
+        ]
+
+        if self.cfg.USE_WANDB:
+            writers.append(WandbWriter())
+
+        return writers
+
 
 class CSDTrainer(SimpleTrainer):
     """The actual trainer that runs the forward and backward passes"""
@@ -174,9 +134,12 @@ class CSDTrainer(SimpleTrainer):
         data_labeled, data_unlabeled = next(self._data_loader_iter)
         data_time = time.perf_counter() - start
 
-        # A boolean that indicates whether CSD loss should be calculated at this iteration
-        # See `config.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T0`
+        # A boolean that indicates whether CSD loss should be calculated at this iteration, see
+        # `config.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T0`
         use_csd = self.iter >= self.solver_csd_t0
+        self.solver_csd_loss_weight = 0
+        if use_csd:
+            self._update_csd_loss_weight()  # Call CSD weight scheduling (could be a hook though)
 
         # Get losses, format (from :meth:`CSDGeneralizedRCNN.forward`):
         # - "loss_cls", "loss_rpn_cls": bbox roi and rpn classification loss
@@ -185,8 +148,6 @@ class CSDTrainer(SimpleTrainer):
         # - "sup_csd_loss_box_reg": CSD consistency loss for localization on labeled data
         # - "unsup_csd_loss_cls", "unsup_csd_loss_box_reg": CSD losses on unlabeled data
         loss_dict = self.model(data_labeled, data_unlabeled, use_csd=use_csd)
-
-        self._update_csd_loss_weight()  # Call CSD weight scheduling (could be a hook though)
 
         losses_sup = (  # Sum up the supervised losses
             loss_dict["loss_rpn_cls"] + loss_dict["loss_rpn_loc"] + loss_dict["loss_cls"] + loss_dict["loss_box_reg"]
@@ -210,7 +171,7 @@ class CSDTrainer(SimpleTrainer):
 
     def _update_csd_loss_weight(self):
         """Controls weight scheduling for the CSD loss: updates the weight coefficient at each iteration.
-        
+
         See CSD paper abstract for more details.
         """
 
@@ -230,84 +191,42 @@ class CSDTrainer(SimpleTrainer):
             self.solver_csd_loss_weight = (
                 np.exp(
                     -12.5
-                    * np.power((1 - (self.solver_csd_t - self.iter) / (self.solver_csd_t - self.solver_csd_t2)), 2,)
+                    * np.power(
+                        (1 - (self.solver_csd_t - self.iter) / (self.solver_csd_t - self.solver_csd_t2)),
+                        2,
+                    )
                 )
                 * self.solver_csd_beta
             )
 
     def _write_metrics(
-        self, loss_dict: Dict[str, torch.Tensor], data_time: float, prefix: str = "",
+        self,
+        loss_dict: Dict[str, torch.Tensor],
+        data_time: float,
+        prefix: str = "",
     ):
         """Adds several lines of code to log metrics to Wandb.
 
-        See `SimpleTrainer._write_metrics` for all details. Changes are commented with "CSD: ...".
+        See `SimpleTrainer._write_metrics` for all details.
         """
-
-        metrics_dict = {k: v.detach().cpu().item() for k, v in loss_dict.items()}
-        metrics_dict["data_time"] = data_time
-
-        # Gather metrics among all workers for logging
-        # This assumes we do DDP-style training, which is currently the only
-        # supported method in detectron2.
-        all_metrics_dict = comm.gather(metrics_dict)
+        SimpleTrainer._write_metrics(self, loss_dict, data_time, prefix)
 
         if comm.is_main_process():
+            metrics_dict = {k: v.detach().cpu().item() for k, v in loss_dict.items()}
             storage = get_event_storage()
 
-            # data_time among workers can have high variance. The actual latency
-            # caused by data_time is the maximum among workers.
-            data_time = np.max([x.pop("data_time") for x in all_metrics_dict])
-            storage.put_scalar("data_time", data_time)
-
-            # average the rest metrics
-            metrics_dict = {k: np.mean([x[k] for x in all_metrics_dict]) for k in all_metrics_dict[0].keys()}
-            total_losses_reduced = sum(metrics_dict.values())
-            if not np.isfinite(total_losses_reduced):
-                raise FloatingPointError(
-                    f"Loss became infinite or NaN at iteration={self.iter}!\n" f"loss_dict = {metrics_dict}"
-                )
-
-            storage.put_scalar("{}total_loss".format(prefix), total_losses_reduced)
-            if len(metrics_dict) > 1:
-                storage.put_scalars(**metrics_dict)
-
-                # CSD: log values to Wandb
-
-                # Put some additional scalars first
-                storage.put_scalar("csd_weight", self.solver_csd_loss_weight)  # CSD loss weight
-                storage.put_scalar(  # Sum of the supervised losses
-                    "total_sup_loss",
-                    metrics_dict["loss_rpn_cls"]
-                    + metrics_dict["loss_rpn_loc"]
-                    + metrics_dict["loss_cls"]
-                    + metrics_dict["loss_box_reg"],
-                )
-                storage.put_scalar(  # Sum of the CSD losses
-                    "total_csd_loss",
-                    metrics_dict["sup_csd_loss_cls"]
-                    + metrics_dict["sup_csd_loss_box_reg"]
-                    + metrics_dict["unsup_csd_loss_cls"]
-                    + metrics_dict["unsup_csd_loss_box_reg"],
-                )
-
-                if storage.iter % global_cfg.WANDB_LOG_FREQ == 0:  # Check logging frequency
-                    keys = [  # Add additional values from default storage to Wandb logs
-                        "lr",
-                        "fast_rcnn/cls_accuracy",
-                        "fast_rcnn/false_negative",
-                        "fast_rcnn/fg_cls_accuracy",
-                        "roi_head/num_bg_samples",
-                        "roi_head/num_fg_samples",
-                        "rpn/num_neg_anchors",
-                        "rpn/num_pos_anchors",
-                        "csd_weight",
-                        "total_sup_loss",
-                        "total_csd_loss",
-                        "data_time",
-                        "{}total_loss".format(prefix),
-                    ]
-                    for k in keys:
-                        if k in storage.latest():
-                            metrics_dict[k] = storage.latest()[k][0]
-                    metrics_dict["iter"] = metrics_dict["global_step"] = storage.iter
-                    wandb.log(metrics_dict, step=storage.iter)
+            storage.put_scalar("csd_weight", self.solver_csd_loss_weight)  # CSD loss weight
+            storage.put_scalar(  # Sum of the supervised losses
+                "total_sup_loss",
+                metrics_dict["loss_rpn_cls"]
+                + metrics_dict["loss_rpn_loc"]
+                + metrics_dict["loss_cls"]
+                + metrics_dict["loss_box_reg"],
+            )
+            storage.put_scalar(  # Sum of the CSD losses
+                "total_csd_loss",
+                metrics_dict["sup_csd_loss_cls"]
+                + metrics_dict["sup_csd_loss_box_reg"]
+                + metrics_dict["unsup_csd_loss_cls"]
+                + metrics_dict["unsup_csd_loss_box_reg"],
+            )

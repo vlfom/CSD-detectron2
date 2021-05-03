@@ -103,11 +103,11 @@ The main files to check are:
 - `tools/run_net.py` the starting script that loads the configuration, initializes Wandb, creates the trainer manager and the model, and starts the training/evaluation loop;
 - `csd/config/config.py` defines the project-specific configuration; note: parameters in this file define default parameters, they are repeated in `configs/voc/csd_L=VOC07_U=VOC12_R50_RFCN.yaml` simply for convenience (e.g. running `python tools/run_net.py --num-gpus 4` should give you the same CSD results);
 - `csd/engine/trainer.py` contains the implementation of the training loop; `CSDTrainerManager` controls the training process taking care of data loaders/checkpointing/hooks/etc., while `CSDTrainer` runs the actual training loop; as in many other files, I extend D2's default classes such as `DefaultTrainer` and `SimpleTrainer`, overriding some of their methods, modifying only the needed parts;
-- `csd/engine/hooks.py` and `csd/engine/evaluator.py` contain several minor modifications relevant for Wandb logging only;
-- `csd/checkpoint/detection_checkpoint.py` contains several minor modifications relevant for Wandb logging only;
 - `csd/data/build.py` builds the data loaders; it uses images that are loaded and x-flipped as defined in `csd/data/mapper.py`;
 - `csd/modeling/meta_arch/rcnn.py` contains the implementation of the forward pass for CSD; specifically, `forward()` implements the standard forward pass along with CSD logic and returns both of the losses (which `CSDTrainer` uses for backpropagation), and `inference()` implements inference logic; note: half of the code there concerns visualizations using Wandb in which I put a lot of effort for seamless monitoring of RPN's and ROI heads' progress;
-- `csd/modeling/roi_heads/roi_heads.py` contains several minor modifications of the default `StandardROIHeads` such as returning both predictions and losses during training (which is needed for CSD in `rcnn.py`).
+- `csd/modeling/roi_heads/roi_heads.py` contains several minor modifications of the default `StandardROIHeads` such as returning both predictions and losses during training (which is needed for CSD in `rcnn.py`);
+- `csd/utils/events.py` implements an EventWriter that logs scalars to Wandb;
+- `csd/checkpoint/detection_checkpoint.py` implements uploading a model's checkpoint to Wandb.
 
 ### Wandb
 

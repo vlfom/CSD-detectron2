@@ -14,7 +14,6 @@ from detectron2.modeling.meta_arch.build import META_ARCH_REGISTRY
 from detectron2.structures import Boxes, ImageList, Instances
 from detectron2.utils import comm
 from detectron2.utils.events import get_event_storage
-from PIL import Image
 
 
 @META_ARCH_REGISTRY.register()
@@ -559,7 +558,9 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             iter_ = 0
 
         wandb_img = wandb.Image(image, boxes=viz_meta)  # Send to wandb
-        wandb.log({f"{predictions_mode}_predictions{im_suffix}": wandb_img, "global_step": iter_}, step=iter_)
+        wandb.log(
+            {f"{predictions_mode}_predictions{im_suffix}": wandb_img, "global_step": iter_, "step": iter_}, step=iter_
+        )
 
     def _bbox_to_wandb_dict(self, xyxy_bbox, class_id, class_id_to_label, image_shape, scores=None):
         """Converts provided variables to wandb bbox-visualization format.

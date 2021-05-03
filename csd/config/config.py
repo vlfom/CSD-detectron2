@@ -55,6 +55,6 @@ def add_csd_config(cfg):
     cfg.DATALOADER.SAMPLER_TRAIN = "TrainingSampler"
     cfg.MODEL.PROPOSAL_GENERATOR.NAME = "RPN"
     cfg.MODEL.KEYPOINT_ON = False
-    cfg.MODEL.LOAD_PROPOSALS = None
+    cfg.MODEL.LOAD_PROPOSALS = False
 
     return cfg
