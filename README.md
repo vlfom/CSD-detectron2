@@ -1,8 +1,6 @@
-Work in progress.
-
 # CSD: Consistency-Based Semi-Supervised Learning for Object Detection implementation in Detectron2
 
-This repository contains an unofficial implementation of the method described in CSD [paper by Jeong et al](https://papers.nips.cc/paper/2019/hash/d0f4dae80c3d0277922f8371d5827292-Abstract.html) based on [Detectron2](https://github.com/facebookresearch/detectron2) framework. It includes implementation for two-stage RFCN object detector only as single-stage detectors were not the focus of my research. It also uses [W&B](https://wandb.ai/) to monitor the progress.
+This repository contains an unofficial implementation of the method described in CSD [paper by Jeong et al](https://papers.nips.cc/paper/2019/hash/d0f4dae80c3d0277922f8371d5827292-Abstract.html) based on [Detectron2](https://github.com/facebookresearch/detectron2) framework. It includes implementation for two-stage RFCN object detector only as single-stage detectors were not the focus of my research. It uses [W&B](https://wandb.ai/) to monitor the progress.
 
 # Table of Contents
 1. [Overview](#overview)
@@ -55,6 +53,8 @@ To reproduce baseline results (without visualizations), run the command below:
 python tools/run_baseline.py --num-gpus 4 --config configs/voc/baseline_VOC07_R50_RFCN.yaml
 ```
 
+You could also run a CSD training script with `CSD_WEIGHT_SCHEDULE_RAMP_BETA=0` (or `CSD_WEIGHT_SCHEDULE_RAMP_T0=<some_large_number>`) but its data loader produces x-flips for all images and requires `IMS_PER_BATCH_UNLABELED` to be at least 1, which would slow down the training process significantly. However, to make sure there are no bugs in CSD implementation, I actually tried running the CSD script with the foregoing parameters for 2K iterations and obtained the results similar to the baseline's.
+
 The `run_baseline.py` script is a duplicate of D2's `tools/train_net.py` ([link](https://github.com/facebookresearch/detectron2/blob/master/tools/train_net.py)), I only add a few lines of code enable Wandb logging of scalars.
 
 I used a configuration that D2 provides for training on VOC07+12 in [PascalVOC-Detection/faster_rcnn_R_50_FPN.yaml](https://github.com/facebookresearch/detectron2/blob/master/configs/PascalVOC-Detection/faster_rcnn_R_50_FPN.yaml) and slightly modified it. [They report](https://github.com/facebookresearch/detectron2/blob/master/MODEL_ZOO.md#cityscapes--pascal-voc-baselines) reaching 51.9 mAP on VOC07 test when training on VOC07+12 trainval.
@@ -94,7 +94,7 @@ python tools/run_net.py --eval-only --config configs/voc/csd_L=VOC07_U=VOC12_R50
 
 Only **a single CSD experiment** was run due to the lack of time with "max_csd_weight" of 0.5 (`CSD_WEIGHT_SCHEDULE_RAMP_BETA=0.5` in config). Though the authors used 1.0 in the paper, using it with batch sizes of 8 made the model diverge in several preliminary runs. The detailed config can be found in `configs/voc/csd_L=VOC07_U=VOC12_R50_RFCN.yaml`.
 
-The results can be found in this Wandb [report](https://wandb.ai/vlfom/csd-detectron2/reports/RFCN-vs-CSD-RFCN-on-VOC07--Vmlldzo2NjAwNjI), I also made the project & runs public so you can check them in detail as well.
+The results can be found in **this Wandb [report](https://wandb.ai/vlfom/csd-detectron2/reports/RFCN-vs-CSD-RFCN-on-VOC07--Vmlldzo2NjAwNjI)**, I also made the project & runs public so you can check them in detail as well.
 
 Using the foregoing configuration, the **improvements from CSD regularization are only marginal**. On several occasions CSD-run outperformed baseline-run (e.g. iterations 6K and 10K), however, in the end, both models converged to nearly the same results. An important note to make though is that introducing CSD regularization did not harm the model that hints that with the right hyperparameters it could actually help.
 
@@ -135,7 +135,7 @@ I log examples for:
 2. a set of training images fixed at the beginning of the run, to monitor the model's progress specifically on them (without GT matching)
 3. a set of random testing images during inference each `cfg.TEST.EVAL_PERIOD` iterations.
 
-Below I put some screenshots of example visualizations (note, iterations number in the header of the table is not precise, visualizations provided just as an example).
+Below I put some screenshots of example visualizations (note, iterations number in the header of the table is not precise, visualizations are provided just as an example).
 
 | iter 1k | iter ~2k | iter ~3k |
 | -- | -- | -- |
