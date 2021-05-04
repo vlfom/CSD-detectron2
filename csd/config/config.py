@@ -19,12 +19,12 @@ def add_csd_config(cfg):
     # T1 and T2 define the absolute number of iterations when to start ramp up and ramp down of the weight,
     # and T defines the target iteration when the weight is expected to finish ramping down (note: it's OK if
     # it's less than `SOLVER.NUM_ITER`)
-    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_BETA = 1.0  # Base multiplier for CSD weights (not mentioned in the paper)
+    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_BETA = 0.0  # Base multiplier for CSD weights (not mentioned in the paper)
     cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T0 = 1  # Train for one iteration without CSD loss
     cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T1 = 5000
-    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T2 = 2000
+    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T2 = 6000
     # Note: even though `T` represents the total number of iterations, it's safe to continue training after `T` iters
-    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T = 20000
+    cfg.SOLVER.CSD_WEIGHT_SCHEDULE_RAMP_T = 18000
 
     ### Dataset parameters
     # Default datasets are VOC07+12 for training and VOC07 for testing
@@ -41,7 +41,6 @@ def add_csd_config(cfg):
     # comment this out or see & modify `CSDGeneralizedRCNN._log_visualization_to_wandb`
     cfg.USE_WANDB = True  # Comment this out if you don't want to use Wandb
     cfg.WANDB_PROJECT_NAME = "csd-detectron2"  # Wandb project name to log the run to
-    cfg.WANDB_LOG_FREQ = 30  # Logging frequency, not recommended to set lower than 20
     cfg.VIS_PERIOD = 300  # Plot training results each <> iterations (sends them to Wandb)
     # # images to plot per visualization run "group", i.e. for RPN/ROI plots how many examples to show; 3 nicely fits in Wandb
     cfg.VIS_IMS_PER_GROUP = 3

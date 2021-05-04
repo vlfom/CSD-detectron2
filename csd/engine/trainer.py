@@ -10,12 +10,10 @@ from csd.checkpoint import CSDDetectionCheckpointer
 from csd.data import CSDDatasetMapper, build_ss_train_loader
 from csd.utils import WandbWriter
 from detectron2.data import MetadataCatalog
-from detectron2.engine import (DefaultTrainer, SimpleTrainer, TrainerBase,
-                               create_ddp_model)
+from detectron2.engine import DefaultTrainer, SimpleTrainer, TrainerBase, create_ddp_model
 from detectron2.evaluation import COCOEvaluator, PascalVOCDetectionEvaluator
 from detectron2.utils import comm
-from detectron2.utils.events import (CommonMetricPrinter, JSONWriter,
-                                     TensorboardXWriter, get_event_storage)
+from detectron2.utils.events import CommonMetricPrinter, JSONWriter, TensorboardXWriter, get_event_storage
 from detectron2.utils.logger import setup_logger
 
 
@@ -191,42 +189,58 @@ class CSDTrainer(SimpleTrainer):
             self.solver_csd_loss_weight = (
                 np.exp(
                     -12.5
-                    * np.power(
-                        (1 - (self.solver_csd_t - self.iter) / (self.solver_csd_t - self.solver_csd_t2)),
-                        2,
-                    )
+                    * np.power((1 - (self.solver_csd_t - self.iter) / (self.solver_csd_t - self.solver_csd_t2)), 2,)
                 )
                 * self.solver_csd_beta
             )
 
     def _write_metrics(
-        self,
-        loss_dict: Dict[str, torch.Tensor],
-        data_time: float,
-        prefix: str = "",
+        self, loss_dict: Dict[str, torch.Tensor], data_time: float, prefix: str = "",
     ):
-        """Adds several lines of code to log metrics to Wandb.
-
-        See `SimpleTrainer._write_metrics` for all details.
         """
-        SimpleTrainer._write_metrics(self, loss_dict, data_time, prefix)
+        Args:
+            loss_dict (dict): dict of scalar losses
+            data_time (float): time taken by the dataloader iteration
+        """
+        metrics_dict = {k: v.detach().cpu().item() for k, v in loss_dict.items()}
+        metrics_dict["data_time"] = data_time
+
+        # Gather metrics among all workers for logging
+        # This assumes we do DDP-style training, which is currently the only
+        # supported method in detectron2.
+        all_metrics_dict = comm.gather(metrics_dict)
 
         if comm.is_main_process():
-            metrics_dict = {k: v.detach().cpu().item() for k, v in loss_dict.items()}
             storage = get_event_storage()
 
+            # data_time among workers can have high variance. The actual latency
+            # caused by data_time is the maximum among workers.
+            data_time = np.max([x.pop("data_time") for x in all_metrics_dict])
+            storage.put_scalar("data_time", data_time)
+
+            # average the rest metrics
+            metrics_dict = {k: np.mean([x[k] for x in all_metrics_dict]) for k in all_metrics_dict[0].keys()}
+            total_sup_loss = sum(metrics_dict[k] for k in ["loss_rpn_cls", "loss_rpn_loc", "loss_cls", "loss_box_reg"])
+            if not np.isfinite(total_sup_loss):
+                raise FloatingPointError(
+                    f"Loss became infinite or NaN at iteration={self.iter}!\n" f"loss_dict = {metrics_dict}"
+                )
+
+            storage.put_scalar("{}total_loss".format(prefix), total_sup_loss)
+            if len(metrics_dict) > 1:
+                storage.put_scalars(**metrics_dict)
+
             storage.put_scalar("csd_weight", self.solver_csd_loss_weight)  # CSD loss weight
-            storage.put_scalar(  # Sum of the supervised losses
-                "total_sup_loss",
-                metrics_dict["loss_rpn_cls"]
-                + metrics_dict["loss_rpn_loc"]
-                + metrics_dict["loss_cls"]
-                + metrics_dict["loss_box_reg"],
-            )
-            storage.put_scalar(  # Sum of the CSD losses
-                "total_csd_loss",
+
+            # Store aggregates
+            csd_loss = (
                 metrics_dict["sup_csd_loss_cls"]
                 + metrics_dict["sup_csd_loss_box_reg"]
                 + metrics_dict["unsup_csd_loss_cls"]
-                + metrics_dict["unsup_csd_loss_box_reg"],
+                + metrics_dict["unsup_csd_loss_box_reg"]
+            ) * self.solver_csd_loss_weight
+            storage.put_scalar("total_csd_loss", csd_loss)  # Sum of the CSD losses
+            storage.put_scalar(  # Sum of all losses
+                "total_all_loss", total_sup_loss + csd_loss,
             )
+
