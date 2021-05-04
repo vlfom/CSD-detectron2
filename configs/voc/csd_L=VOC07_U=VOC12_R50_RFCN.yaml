@@ -12,8 +12,8 @@ SOLVER:
   IMS_PER_BATCH_UNLABELED: 16
   CSD_WEIGHT_SCHEDULE_RAMP_BETA: 0.5
   CSD_WEIGHT_SCHEDULE_RAMP_T0: 1
-  CSD_WEIGHT_SCHEDULE_RAMP_T1: 5000
-  CSD_WEIGHT_SCHEDULE_RAMP_T2: 6000
+  CSD_WEIGHT_SCHEDULE_RAMP_T1: 6000
+  CSD_WEIGHT_SCHEDULE_RAMP_T2: 8000
   CSD_WEIGHT_SCHEDULE_RAMP_T: 18000
 DATASETS:
   TRAIN_UNLABELED: ("voc_2012_trainval",)
@@ -21,4 +21,4 @@ VIS_PERIOD: 300
 VIS_IMS_PER_GROUP: 3
 VIS_MAX_PREDS_PER_IM: 40
 VIS_TEST: True
-# SEED: 42  # Sets a fixed random seed for data loaders; consider uncommenting for debugging
+# SEED: 42  # Sets a random seed for data loaders; consider uncommenting for debugging

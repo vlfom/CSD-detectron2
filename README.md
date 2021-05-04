@@ -20,7 +20,9 @@ The goal of this project was to verify the effectiveness of the CSD method for t
 1. a baseline that uses RFCN model, ResNet50 backbone, and was trained on VOC07 trainval;
 2. a CSD version with almost the same configuration, VOC12 trainval as additional unlabeled data, and CSD regularization added for both labeled and unlabeled datasets.
 
-Both models were tested on VOC07 test. To monitor the progress better I also implemented logging the results to Wandb including multiple images with both RPN and ROI predictions (see examples in [wandb](#wandb)).
+Both models were tested on VOC07 test. To monitor the progress better I also implemented logging the results to Wandb including multiple images with both RPN and ROI predictions (see examples in [wandb](#wandb) below).
+
+In the end, only **a single CSD experiment** was run due to the lack of time with "max_csd_weight" of 0.5. Though the authors used 1.0 in the paper, using it with batch sizes of 8 made the model diverge in several preliminary runs. The results are reported [below](#results) and in this [Wandb report](https://wandb.ai/vlfom/csd-detectron2/reports/RFCN-vs-CSD-RFCN-on-VOC07--Vmlldzo2NjAwNjI). Using CSD did not bring significant improvement with the configuration I went for, and one should experiment with a larger CSD weight or longer training.
 
 Please note that the current implementation can be used with other datasets and backbones with no problem, and I plan to run some COCO experiments soon.
 
@@ -90,7 +92,16 @@ python tools/run_net.py --eval-only --config configs/voc/csd_L=VOC07_U=VOC12_R50
 
 # Results
 
-TBD.
+Only **a single CSD experiment** was run due to the lack of time with "max_csd_weight" of 0.5 (`CSD_WEIGHT_SCHEDULE_RAMP_BETA=0.5` in config). Though the authors used 1.0 in the paper, using it with batch sizes of 8 made the model diverge in several preliminary runs. The detailed config can be found in `configs/voc/csd_L=VOC07_U=VOC12_R50_RFCN.yaml`.
+
+The results can be found in this Wandb [report](https://wandb.ai/vlfom/csd-detectron2/reports/RFCN-vs-CSD-RFCN-on-VOC07--Vmlldzo2NjAwNjI), I also made the project & runs public so you can check them in detail as well.
+
+Using the foregoing configuration, the **improvements from CSD regularization are only marginal**. On several occasions CSD-run outperformed baseline-run (e.g. iterations 6K and 10K), however, in the end, both models converged to nearly the same results. An important note to make though is that introducing CSD regularization did not harm the model that hints that with the right hyperparameters it could actually help.
+
+Several things should definitely be tried that I left for the future work:
+- Training using max_csd_weight of 0.5 with batch sizes of 16 was very stable, therefore, the first thing to try should be increasing the CSD weight to 1.0, and then experimenting with changing the weight schedule, e.g. making the `CSD_WEIGHT_SCHEDULE_RAMP_T2` larger;
+- Both the baseline and CSD experiments seem to have not overfitted on VOC07 during training based on test APs, therefore, increasing training duration should be tried; specifically one can try increasing `SOLVER.MAX_ITER` together with `SOLVER.STEPS`, I would start with `21000` and `(14000, 19000)` respectively;
+- Once the models start overfitting and CSD brings improvements, I would experiment with increasing backbone's capacity, i.e. replacing ResNet50 with ResNet101.
 
 # Additional notes
 
@@ -109,6 +120,8 @@ The main files to check are:
 - `csd/modeling/roi_heads/roi_heads.py` contains several minor modifications of the default `StandardROIHeads` such as returning both predictions and losses during training (which is needed for CSD in `rcnn.py`);
 - `csd/utils/events.py` implements an EventWriter that logs scalars to Wandb;
 - `csd/checkpoint/detection_checkpoint.py` implements uploading a model's checkpoint to Wandb.
+
+The **core CSD logic** (e.g. to copy to your project) is in `CSDTrainer`'s `run_step()` and `CSDGeneralizedRCNN`'s `forward()` (but keep in mind that they may depend on many other functions/classes).
 
 ### Wandb
 
@@ -130,10 +143,10 @@ Below I put some screenshots of example visualizations (note, iterations number 
 
 # Future features
 
-- [ ] Test enabling mask RoI head
+- [ ] Run an experiment with increased CSD loss weight or training duration
+- [ ] Test enabling mask RoI head and how CSD affects segmentation performance
 - [ ] Test performance on COCO and LVIS datasets
 - [ ] Add support for splitting a dataset into labeled and unlabeled parts (e.g. using only 1/5% of data as labeled data)
-- [ ] Test K% supervision
 
 # Credits
 
