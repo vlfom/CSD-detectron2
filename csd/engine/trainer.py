@@ -6,14 +6,16 @@ from typing import Dict
 
 import numpy as np
 import torch
-from csd.checkpoint import CSDDetectionCheckpointer
-from csd.data import CSDDatasetMapper, build_ss_train_loader
+from csd.checkpoint import WandbDetectionCheckpointer
+from csd.data import CSDDatasetMapper, TestDatasetMapper, build_ss_train_loader
 from csd.utils import WandbWriter
-from detectron2.data import MetadataCatalog
-from detectron2.engine import DefaultTrainer, SimpleTrainer, TrainerBase, create_ddp_model
+from detectron2.data import MetadataCatalog, build_detection_test_loader
+from detectron2.engine import (DefaultTrainer, SimpleTrainer, TrainerBase,
+                               create_ddp_model)
 from detectron2.evaluation import COCOEvaluator, PascalVOCDetectionEvaluator
 from detectron2.utils import comm
-from detectron2.utils.events import CommonMetricPrinter, JSONWriter, TensorboardXWriter, get_event_storage
+from detectron2.utils.events import (CommonMetricPrinter, JSONWriter,
+                                     TensorboardXWriter, get_event_storage)
 from detectron2.utils.logger import setup_logger
 
 
@@ -61,7 +63,7 @@ class CSDTrainerManager(DefaultTrainer):
         )
 
         self.scheduler = self.build_lr_scheduler(cfg, optimizer)
-        self.checkpointer = CSDDetectionCheckpointer(  # CSD: use custom checkpointer (only few lines are added there)
+        self.checkpointer = WandbDetectionCheckpointer(  # CSD: use custom checkpointer (only few lines are added there)
             # Assume you want to save checkpoints together with logs/statistics
             model,
             cfg.OUTPUT_DIR,
@@ -78,6 +80,12 @@ class CSDTrainerManager(DefaultTrainer):
         """Defines a data loader to use in the training loop."""
         dataset_mapper = CSDDatasetMapper(cfg, True)
         return build_ss_train_loader(cfg, dataset_mapper)
+
+    @classmethod
+    def build_test_loader(cls, cfg, dataset_name):
+        """Defines a data loader to use in the testing loop."""
+        dataset_mapper = TestDatasetMapper(cfg, False)
+        return build_detection_test_loader(cfg, dataset_name, mapper=dataset_mapper)
 
     @classmethod
     def build_evaluator(cls, cfg, dataset_name, output_folder=None):
@@ -189,13 +197,19 @@ class CSDTrainer(SimpleTrainer):
             self.solver_csd_loss_weight = (
                 np.exp(
                     -12.5
-                    * np.power((1 - (self.solver_csd_t - self.iter) / (self.solver_csd_t - self.solver_csd_t2)), 2,)
+                    * np.power(
+                        (1 - (self.solver_csd_t - self.iter) / (self.solver_csd_t - self.solver_csd_t2)),
+                        2,
+                    )
                 )
                 * self.solver_csd_beta
             )
 
     def _write_metrics(
-        self, loss_dict: Dict[str, torch.Tensor], data_time: float, prefix: str = "",
+        self,
+        loss_dict: Dict[str, torch.Tensor],
+        data_time: float,
+        prefix: str = "",
     ):
         """
         Args:
@@ -241,6 +255,6 @@ class CSDTrainer(SimpleTrainer):
             ) * self.solver_csd_loss_weight
             storage.put_scalar("total_csd_loss", csd_loss)  # Sum of the CSD losses
             storage.put_scalar(  # Sum of all losses
-                "total_all_loss", total_sup_loss + csd_loss,
+                "total_all_loss",
+                total_sup_loss + csd_loss,
             )
-

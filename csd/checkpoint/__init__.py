@@ -1,1 +1,1 @@
-from .detection_checkpoint import CSDDetectionCheckpointer
+from .detection_checkpoint import WandbDetectionCheckpointer

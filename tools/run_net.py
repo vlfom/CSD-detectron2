@@ -25,6 +25,9 @@ def check_config(cfg):
     assert cfg.MODEL.PROPOSAL_GENERATOR.NAME == "RPN"
     assert cfg.MODEL.KEYPOINT_ON is False
     assert cfg.MODEL.LOAD_PROPOSALS is False
+    assert (
+        cfg.SOLVER.IMS_PER_BATCH == cfg.SOLVER.IMS_PER_BATCH_LABELED + cfg.SOLVER.IMS_PER_BATCH_UNLABELED
+    ), "Total number of images per batch must be equal to the sum of labeled and unlabeled images per batch"
 
 
 def setup(args):
@@ -35,15 +38,11 @@ def setup(args):
     cfg.merge_from_file(args.config_file)  # Extend with config from specified file
     cfg.merge_from_list(args.opts)  # Extend with config specified in args
 
-    assert (  # Sanity check
-        cfg.SOLVER.IMS_PER_BATCH == cfg.SOLVER.IMS_PER_BATCH_LABELED + cfg.SOLVER.IMS_PER_BATCH_UNLABELED
-    ), "Total number of images per batch must be equal to the sum of labeled and unlabeled images per batch"
-
+    check_config(cfg)
     cfg.freeze()
     set_global_cfg(cfg)  # Set up "global" access for config
 
     default_setup(cfg, args)
-    check_config(cfg)
 
     return cfg
 
@@ -66,7 +65,7 @@ def eval_mode(cfg):
 def main(args):
     """Sets up config, instantiates trainer, and uses it to start the training loop"""
 
-    seed_all_rng(42)  # Fix seed; TODO: remove
+    # seed_all_rng(42)  # Sets a random seed for numpy, torch, random, python hashess; consider uncommenting for debugginng
 
     cfg = setup(args)
 

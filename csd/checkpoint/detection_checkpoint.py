@@ -7,7 +7,7 @@ from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.config import global_cfg
 
 
-class CSDDetectionCheckpointer(DetectionCheckpointer):
+class WandbDetectionCheckpointer(DetectionCheckpointer):
     """Adds a few lines of code to upload the checkpoint to wandb.
 
     See `d2.checkpoint.DetectionCheckpointer` and `fvcore.common.Checkpointer` for all details.

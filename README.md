@@ -10,7 +10,8 @@ This repository contains an unofficial implementation of the method described in
 3. [Running scripts](#running-scripts)
 4. [Results](#results)
 5. [Additional notes](#additional-notes)
-6. [Credits](#credits)
+6. [Future features](#future-features)
+7. [Credits](#credits)
 
 # Overview
 
@@ -126,6 +127,13 @@ Below I put some screenshots of example visualizations (note, iterations number 
 | iter 1k | iter ~2k | iter ~3k |
 | -- | -- | -- |
 | ![image](https://github.com/vlfom/CSD-detectron2/blob/master/teaser/ex1_iter1000.png?raw=true) | ![image](https://github.com/vlfom/CSD-detectron2/blob/master/teaser/ex1_iter2000.png?raw=true) | ![image](https://github.com/vlfom/CSD-detectron2/blob/master/teaser/ex1_iter3000.png?raw=true) |
+
+# Future features
+
+- [ ] Test enabling mask RoI head
+- [ ] Test performance on COCO and LVIS datasets
+- [ ] Add support for splitting a dataset into labeled and unlabeled parts (e.g. using only 1/5% of data as labeled data)
+- [ ] Test K% supervision
 
 # Credits
 
