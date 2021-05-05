@@ -59,9 +59,7 @@ The `run_baseline.py` script is a duplicate of D2's `tools/train_net.py` ([link]
 
 I used a configuration that D2 provides for training on VOC07+12 in [PascalVOC-Detection/faster_rcnn_R_50_FPN.yaml](https://github.com/facebookresearch/detectron2/blob/master/configs/PascalVOC-Detection/faster_rcnn_R_50_FPN.yaml) and slightly modified it. [They report](https://github.com/facebookresearch/detectron2/blob/master/MODEL_ZOO.md#cityscapes--pascal-voc-baselines) reaching 51.9 mAP on VOC07 test when training on VOC07+12 trainval.
 
-To speed up the experiments, for this project it was decided to use a model trained **only on VOC07 trainval** and use VOC07 test for testing.
-
-I noticed that when using the default D2's VOC07+12 configuration with VOC07 data only the model overfitted halfway through training, so I decided to modify the training duration. The final configuration for the baseline can be found in `configs/voc/baseline_VOC07_R50_RFCN.yaml` (it extends the default one mentioned above that I renamed and put as `configs/voc/default_VOC0712_R50_RFCN.yaml`).
+To speed up the experiments, for this project it was decided to use a model trained **only on VOC07 trainval** and use VOC07 test for testing. For both baseline and CSD experiments the training duration & LRL schedule were the same.
 
 ### CSD
 
@@ -96,11 +94,11 @@ Only **a single CSD experiment** was run due to the lack of time with "max_csd_w
 
 The results can be found in **this Wandb [report](https://wandb.ai/vlfom/csd-detectron2/reports/RFCN-vs-CSD-RFCN-on-VOC07--Vmlldzo2NjAwNjI)**, I also made the project & runs public so you can check them in detail as well.
 
-Using the foregoing configuration, the **improvements from CSD regularization are only marginal**. On several occasions CSD-run outperformed baseline-run (e.g. iterations 6K and 10K), however, in the end, both models converged to nearly the same results. An important note to make though is that introducing CSD regularization did not harm the model that hints that with the right hyperparameters it could actually help.
+Using the foregoing configuration, the **improvements from CSD regularization are only marginal**. On several occasions CSD-run outperformed baseline-run (e.g. iterations 6K and 10K), however, in the end, both models converged to nearly the same results. An important note to make is that introducing CSD regularization did not harm the model that hints that with the right hyperparameters it could actually help.
 
 Several things should definitely be tried that I left for the future work:
-- Training using max_csd_weight of 0.5 with batch sizes of 16 was very stable, therefore, the first thing to try should be increasing the CSD weight to 1.0, and then experimenting with changing the weight schedule, e.g. making the `CSD_WEIGHT_SCHEDULE_RAMP_T2` larger;
-- Both the baseline and CSD experiments seem to have not overfitted on VOC07 during training based on test APs, therefore, increasing training duration should be tried; specifically one can try increasing `SOLVER.MAX_ITER` together with `SOLVER.STEPS`, I would start with `21000` and `(14000, 19000)` respectively;
+- Both the baseline and CSD experiments seem to have not overfitted on VOC07 during training based on test APs. Also, the mAP of the baseline (46.6%) is very low comparing to SOTA results. Therefore, it is likely that **CSD regularization was not helpful because the model has not started overfitting yet**. Therefore, increasing training duration must be tried; specifically one can try increasing `SOLVER.MAX_ITER` and `SOLVER.STEPS`, I would start with `27000` and `(18000, 24000)` respectively;
+- Training using max_csd_weight of 0.5 with batch sizes of 16 was very stable, therefore, I would continue with increasing the CSD weight to 1.0, and then experimenting with changing the weight schedule, e.g. making the `CSD_WEIGHT_SCHEDULE_RAMP_T2` larger;
 - Once the models start overfitting and CSD brings improvements, I would experiment with increasing backbone's capacity, i.e. replacing ResNet50 with ResNet101.
 
 # Additional notes
