@@ -20,7 +20,11 @@ The goal of this project was to verify the effectiveness of the CSD method for t
 
 Both models were tested on VOC07 test. To monitor the progress better I also implemented logging the results to Wandb including multiple images with both RPN and ROI predictions (see examples in [wandb](#wandb) below).
 
-In the end, only **a single CSD experiment** was run due to the lack of time with "max_csd_weight" of 0.5. Though the authors used 1.0 in the paper, using it with batch sizes of 8 made the model diverge in several preliminary runs. The results are reported [below](#results) and in this [Wandb report](https://wandb.ai/vlfom/csd-detectron2/reports/RFCN-vs-CSD-RFCN-on-VOC07--Vmlldzo2NjAwNjI). Using CSD did not bring significant improvement with the configuration I went for, and one should experiment with a larger CSD weight or longer training.
+In the end, only **a single CSD experiment** was run due to the lack of time with "max_csd_weight" of 0.5. Though the authors used 1.0 in the paper, using it with batch sizes of 8 made the model diverge in several preliminary runs.
+
+**The results are reported [below](#results) and in this [Wandb report](https://wandb.ai/vlfom/csd-detectron2/reports/RFCN-vs-CSD-RFCN-on-VOC07--Vmlldzo2NjAwNjI). Using CSD did not bring significant improvement with the configuration I went for, and one should experiment with a larger CSD weight or longer training.**
+
+In [Overview of the project structure](https://github.com/vlfom/CSD-detectron2#overview-of-the-project-structure) you can get an overview of the code structure. **The core CSD logic (e.g. to copy to your project) is in [`CSDGeneralizedRCNN`'s `forward()`](https://github.com/vlfom/CSD-detectron2/blob/master/csd/modeling/meta_arch/rcnn.py#L23) and [`CSDTrainer`'s `run_step()`](https://github.com/vlfom/CSD-detectron2/blob/master/csd/engine/trainer.py#L130)** (but keep in mind that they may depend on many other functions/classes).
 
 Please note that the current implementation can be used with other datasets and backbones with no problem, and I plan to run some COCO experiments soon.
 
@@ -119,7 +123,7 @@ The main files to check are:
 - `csd/utils/events.py` implements an EventWriter that logs scalars to Wandb;
 - `csd/checkpoint/detection_checkpoint.py` implements uploading a model's checkpoint to Wandb.
 
-The **core CSD logic** (e.g. to copy to your project) is in `CSDTrainer`'s `run_step()` and `CSDGeneralizedRCNN`'s `forward()` (but keep in mind that they may depend on many other functions/classes).
+**The core CSD logic (e.g. to copy to your project) is in [`CSDGeneralizedRCNN`'s `forward()`](https://github.com/vlfom/CSD-detectron2/blob/master/csd/modeling/meta_arch/rcnn.py#L23) and [`CSDTrainer`'s `run_step()`](https://github.com/vlfom/CSD-detectron2/blob/master/csd/engine/trainer.py#L130)** (but keep in mind that they may depend on many other functions/classes).
 
 ### Wandb
 
