@@ -1,8 +1,0 @@
-# CSD configuration for RFCN training on 10% VOC07 + 90% VOC07 as unlabeled data
-# See `config/config.py` for details on parameters
-
-_BASE_: "csd_L=07_U=12_R50RFCN.yaml"
-DATASETS:
-  MODE: "RANDOM_SPLIT"
-  SUP_PERCENT: 10  # Use only 10% of images for supervision
-  RANDOM_SPLIT_SEED: 42

@@ -1,13 +1,12 @@
 import ast
 import operator
 
+import detectron2.utils.comm as comm
 import numpy as np
 import torch
-from detectron2.data.build import (build_batch_data_loader,
-                                   get_detection_dataset_dicts,
-                                   worker_init_reset_seed)
-from detectron2.data.common import (AspectRatioGroupedDataset, DatasetFromList,
-                                    MapDataset)
+from detectron2.data import MetadataCatalog, print_instances_class_histogram
+from detectron2.data.build import build_batch_data_loader, get_detection_dataset_dicts, worker_init_reset_seed
+from detectron2.data.common import AspectRatioGroupedDataset, DatasetFromList, MapDataset
 from detectron2.data.dataset_mapper import DatasetMapper
 from detectron2.data.samplers import TrainingSampler
 from detectron2.utils.comm import get_world_size
@@ -43,12 +42,18 @@ def build_ss_train_loader(cfg, mapper):
     labeled_dataset_dicts, unlabeled_dataset_dicts = build_ss_datasets(cfg)
 
     # Log the datasets sizes
-    logger = setup_logger(name=__name__)
-    logger.debug(
-        "Number of images in the labeled and unlabeled datasets: {}, {}".format(
-            len(labeled_dataset_dicts), len(unlabeled_dataset_dicts)
+    if comm.is_main_process():
+        logger = setup_logger(name=__name__)
+        logger.debug(
+            "Number of images in the labeled and unlabeled datasets: {}, {}".format(
+                len(labeled_dataset_dicts), len(unlabeled_dataset_dicts)
+            )
         )
-    )
+
+        # Print updated metadata counts
+        print_instances_class_histogram(
+            labeled_dataset_dicts, MetadataCatalog.get(cfg.DATASETS.TRAIN[0]).thing_classes
+        )
 
     # Map metadata into actual objects (note: data augmentations also take place here)
     labeled_dataset = MapDataset(labeled_dataset_dicts, mapper)
@@ -145,10 +150,8 @@ def get_dataset_labeled_indices(im_count, cfg):
             cfg.DATASETS.SUP_PERCENT is not None
         ), "% of data to use as labeled must be specified when `DATASETS.RANDOM_SPLIT_PATH` is not"
         assert (
-            cfg.DATASETS.RANDOM_SPLIT_SEED is not None,
+            cfg.DATASETS.RANDOM_SPLIT_SEED is not None
         ), "Random seed must be specified to make sure that GPUs generate the same indices for the labeled subset."
-
-        np.random.seed(cfg.DATASETS.RANDOM_SPLIT_SEED)
 
         cnt_labeled = int(im_count * cfg.DATASETS.SUP_PERCENT / 100)  # Number of labeled images
         assert (
@@ -156,7 +159,8 @@ def get_dataset_labeled_indices(im_count, cfg):
         ), f"Supervision percent provided in cfg.DATASETS.SUP_PERCENT is too small: {cfg.DATASETS.SUP_PERCENT}"
 
         # Generate indices of labeled images
-        labeled_idx = np.random.default_rng().choice(im_count, size=cnt_labeled, replace=False)
+        rand_g = np.random.default_rng(cfg.DATASETS.RANDOM_SPLIT_SEED)  # Set seed
+        labeled_idx = rand_g.choice(im_count, size=cnt_labeled, replace=False)
 
     return labeled_idx
 
@@ -205,8 +209,7 @@ def build_ss_batch_data_loader(
     unlabel_data_loader = create_data_loader(unlabel_dataset, unlabel_sampler)
 
     return AspectRatioGroupedSSDataset(
-        (label_data_loader, unlabel_data_loader),
-        (batch_size_label, batch_size_unlabel),
+        (label_data_loader, unlabel_data_loader), (batch_size_label, batch_size_unlabel),
     )
 
 
@@ -286,14 +289,15 @@ def build_detection_train_loader(cfg):
 
     # CSD: subsample the dataset if needed
     dataset = check_subsample_dataset(dataset, cfg)
-    logger = setup_logger(name=__name__)
-    logger.debug("Number of images in the dataset: {}".format(len(dataset)))
-    _log_api_usage("dataset." + cfg.DATASETS.TRAIN[0])
+
+    if comm.is_main_process():  # Log counts
+        logger = setup_logger(name=__name__)
+        logger.debug("Number of images in the dataset: {}".format(len(dataset)))
+        _log_api_usage("dataset." + cfg.DATASETS.TRAIN[0])
 
     # Original code
     mapper = DatasetMapper(cfg, True)
 
-    logger.info("Using training sampler {}".format("TrainingSampler"))
     sampler = TrainingSampler(len(dataset))
 
     dataset = DatasetFromList(dataset, copy=False)
@@ -320,6 +324,13 @@ def check_subsample_dataset(dataset_dicts, cfg):
     if cfg.DATASETS.MODE == "RANDOM_SPLIT":  # Check if the dataset should be subsampled according to config
         # Reuse CSD code, ignore the unlabeled split
         labeled_dataset_dicts, _ = split_labeled_dataset(dataset_dicts, cfg)
+
+        # Print updated metadata counts
+        if comm.is_main_process():
+            print_instances_class_histogram(
+                labeled_dataset_dicts, MetadataCatalog.get(cfg.DATASETS.TRAIN[0]).thing_classes
+            )
+
         return labeled_dataset_dicts
 
     return dataset_dicts

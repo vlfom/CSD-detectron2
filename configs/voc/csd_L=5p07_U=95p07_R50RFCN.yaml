@@ -1,0 +1,12 @@
+# CSD configuration for RFCN training on 5% VOC07 + 95% VOC07 as unlabeled data
+# See `config/config.py` for details on parameters
+
+_BASE_: "csd_L=07_U=12_R50RFCN.yaml"
+DATASETS:
+  MODE: "RANDOM_SPLIT"  # Split training dataset into labeled and unlabeled subsets
+  SUP_PERCENT: 5  # Use only 5% of images for supervision; rest as unlabeled
+  RANDOM_SPLIT_SEED: 42
+SOLVER:
+  CHECKPOINT_PERIOD: 500  # Dump the model weights more often
+TEST:
+  EVAL_PERIOD: 500  # Evaluate more often
