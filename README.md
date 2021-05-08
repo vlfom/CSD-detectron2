@@ -8,7 +8,9 @@ This repository contains an unofficial implementation of the method described in
 3. [Running scripts](#running-scripts)
 4. [Results](#results)
 5. [Additional notes](#additional-notes)
-6. [Future features](#future-features)
+   - [Overview of the project structure](https://github.com/vlfom/CSD-detectron2#overview-of-the-project-structure)
+   - [Wandb](#wandb)
+6. [Planned future features](#future-features)
 7. [Credits](#credits)
 
 # Overview
@@ -16,15 +18,13 @@ This repository contains an unofficial implementation of the method described in
 The goal of this project was to verify the effectiveness of the CSD method for two-stage object detectors, implement an easily configurable solution, and to learn the D2 framework. After successful implementation, due to the lack of time, the scope of experiments was limited to a *quick, non-extensive* set on *some* datasets. Specifically, (as of now) only two experiments were run:
 
 1. a baseline that uses RFCN model, ResNet50 backbone, and was trained on VOC07 trainval;
-2. a CSD version with almost the same configuration, VOC12 trainval as additional unlabeled data, and CSD regularization added for both labeled and unlabeled datasets.
+2. a CSD version with the same configuration, but CSD regularization enabled for both labeled and unlabeled datasets, where VOC12 trainval was used as unlabeled data.
 
-Both models were tested on VOC07 test. To monitor the progress better I also implemented logging the results to Wandb including multiple images with both RPN and ROI predictions (see examples in [wandb](#wandb) below).
+Both runs were tested on VOC07 test. To monitor the progress better I also implemented logging the results to Wandb including multiple images with both RPN and ROI predictions (see examples in [wandb](#wandb) below).
 
-In the end, only **a single CSD experiment** was run due to the lack of time with "max_csd_weight" of 0.5. Though the authors used 1.0 in the paper, using it with batch sizes of 8 made the model diverge in several preliminary runs.
+**The detailed results are reported [below](#results) and in this [Wandb report](https://wandb.ai/vlfom/csd-detectron2/reports/RFCN-vs-CSD-RFCN-on-VOC07--Vmlldzo2NjAwNjI). Using CSD did not bring significant improvement with the configuration I went for, and one should experiment with a larger CSD weight or longer training.**
 
-**The results are reported [below](#results) and in this [Wandb report](https://wandb.ai/vlfom/csd-detectron2/reports/RFCN-vs-CSD-RFCN-on-VOC07--Vmlldzo2NjAwNjI). Using CSD did not bring significant improvement with the configuration I went for, and one should experiment with a larger CSD weight or longer training.**
-
-In [Overview of the project structure](https://github.com/vlfom/CSD-detectron2#overview-of-the-project-structure) you can get an overview of the code structure. **The core CSD logic (e.g. to copy to your project) is in [`CSDGeneralizedRCNN`'s `forward()`](https://github.com/vlfom/CSD-detectron2/blob/master/csd/modeling/meta_arch/rcnn.py#L23) and [`CSDTrainer`'s `run_step()`](https://github.com/vlfom/CSD-detectron2/blob/master/csd/engine/trainer.py#L130)** (but keep in mind that they may depend on many other functions/classes).
+In [Overview of the project structure](https://github.com/vlfom/CSD-detectron2#overview-of-the-project-structure) you can get an overview of the code. **The core CSD logic (e.g. to copy to your project) is in [`CSDGeneralizedRCNN`'s `forward()`](https://github.com/vlfom/CSD-detectron2/blob/master/csd/modeling/meta_arch/rcnn.py#L23) and [`CSDTrainer`'s `run_step()`](https://github.com/vlfom/CSD-detectron2/blob/master/csd/engine/trainer.py#L130)** (but keep in mind that they may depend on many other functions/classes).
 
 Please note that the current implementation can be used with other datasets and backbones with no problem, and I plan to run some COCO experiments soon.
 
@@ -52,9 +52,11 @@ You can also use the script provided inside the `datasets/` folder to download V
 
 ### Baseline
 
+*If you get `ModuleNotFoundError: No module named 'csd'` error, you can add `PYTHONPATH=<your_prefix>/CSD-detectron2` to the beginninng of the command.*
+
 To reproduce baseline results (without visualizations), run the command below:
 ```python
-python tools/run_baseline.py --num-gpus 4 --config configs/voc/baseline_VOC07_R50_RFCN.yaml
+python tools/run_baseline.py --num-gpus 4 --config configs/voc/baseline_L=07_R50RFCN.yaml
 ```
 
 You could also run a CSD training script with `CSD_WEIGHT_SCHEDULE_RAMP_BETA=0` (or `CSD_WEIGHT_SCHEDULE_RAMP_T0=<some_large_number>`) but its data loader produces x-flips for all images and requires `IMS_PER_BATCH_UNLABELED` to be at least 1, which would slow down the training process significantly. However, to make sure there are no bugs in CSD implementation, I actually tried running the CSD script with the foregoing parameters for 2K iterations and obtained the results similar to the baseline's.
@@ -69,17 +71,15 @@ To speed up the experiments, for this project it was decided to use a model trai
 
 Run the command below to train a model with CSD on VOC07 trainval (labeled) and VOC12 (unlabeled):
 ```python
-python tools/run_net.py --num-gpus 4 --config configs/voc/csd_L=VOC07_U=VOC12_R50_RFCN.yaml
+python tools/run_net.py --num-gpus 4 --config configs/voc/csd_L=07_U=12_R50RFCN.yaml
 ```
-
-If you get an error `ModuleNotFoundError: No module named 'csd'`, you can add `PYTHONPATH=<prefix>/CSD-detectron2` to the beginninng of the command.
 
 To *resume* the training, you can run the following (note: the current iteration is also checkpointed in D2):
 ```python
-python tools/run_net.py --resume --num-gpus 4 --config configs/voc/csd_L=VOC07_U=VOC12_R50_RFCN.yaml MODEL.WEIGHTS output/your_model_weights.pt
+python tools/run_net.py --resume --num-gpus 4 --config configs/voc/csd_L=07_U=12_R50RFCN.yaml MODEL.WEIGHTS output/your_model_weights.pt
 ```
 
-Note that the configuration file `configs/voc/csd_L=VOC07_U=VOC12_R50_RFCN.yaml` extends the baseline's `configs/voc/baseline_VOC07_R50_RFCN.yaml` so one can compare what exactly was modified.
+Note that the configuration file `configs/voc/csd_L=07_U=12_R50RFCN.yaml` extends the baseline's `configs/voc/baseline_L=07_R50RFCN.yaml` so one can compare what exactly was modified.
 
 The details for all the configuration parameters can be found in `csd/config/config.py`. I tried to document most of parameters and after checking the CSD paper and its supplementary you should have no problems with understanding them (also, the code is extensively documented).
 
@@ -89,12 +89,12 @@ It is recommended to experiment with parameters, as I ran only several configura
 
 Run the command below to evaluate your model on VOC07 test dataset:
 ```python
-python tools/run_net.py --eval-only --config configs/voc/csd_L=VOC07_U=VOC12_R50_RFCN.yaml MODEL.WEIGHTS output/your_model_weights.pt
+python tools/run_net.py --eval-only --config configs/voc/csd_L=07_U=12_R50RFCN.yaml MODEL.WEIGHTS output/your_model_weights.pt
 ```
 
 # Results
 
-Only **a single CSD experiment** was run due to the lack of time with "max_csd_weight" of 0.5 (`CSD_WEIGHT_SCHEDULE_RAMP_BETA=0.5` in config). Though the authors used 1.0 in the paper, using it with batch sizes of 8 made the model diverge in several preliminary runs. The detailed config can be found in `configs/voc/csd_L=VOC07_U=VOC12_R50_RFCN.yaml`.
+Only **a single CSD experiment** was run due to the lack of time with maximum CSD loss' weight of 0.5 (`CSD_WEIGHT_SCHEDULE_RAMP_BETA=0.5` in config). Though the authors used 1.0 in the paper, using it with batch sizes of 8 made the model diverge in several preliminary runs, so I decided to lower it. The detailed config can be found in `configs/voc/csd_L=07_U=12_R50RFCN.yaml`.
 
 The results can be found in **this Wandb [report](https://wandb.ai/vlfom/csd-detectron2/reports/RFCN-vs-CSD-RFCN-on-VOC07--Vmlldzo2NjAwNjI)**, I also made the project & runs public so you can check them in detail as well.
 
@@ -115,7 +115,7 @@ I tried to leave extensive comments in each file so there should be no problem w
 The main files to check are:
 
 - `tools/run_net.py` the starting script that loads the configuration, initializes Wandb, creates the trainer manager and the model, and starts the training/evaluation loop;
-- `csd/config/config.py` defines the project-specific configuration; note: parameters in this file define default parameters, they are repeated in `configs/voc/csd_L=VOC07_U=VOC12_R50_RFCN.yaml` simply for convenience (e.g. running `python tools/run_net.py --num-gpus 4` should give you the same CSD results);
+- `csd/config/config.py` defines the project-specific configuration; note: parameters in this file define default parameters, they are repeated in `configs/voc/csd_L=07_U=12_R50RFCN.yaml` simply for convenience (e.g. running `python tools/run_net.py --num-gpus 4` should give you the same CSD results);
 - `csd/engine/trainer.py` contains the implementation of the training loop; `CSDTrainerManager` controls the training process taking care of data loaders/checkpointing/hooks/etc., while `CSDTrainer` runs the actual training loop; as in many other files, I extend D2's default classes such as `DefaultTrainer` and `SimpleTrainer`, overriding some of their methods, modifying only the needed parts;
 - `csd/data/build.py` builds the data loaders; it uses images that are loaded and x-flipped as defined in `csd/data/mapper.py`;
 - `csd/modeling/meta_arch/rcnn.py` contains the implementation of the forward pass for CSD; specifically, `forward()` implements the standard forward pass along with CSD logic and returns both of the losses (which `CSDTrainer` uses for backpropagation), and `inference()` implements inference logic; note: half of the code there concerns visualizations using Wandb in which I put a lot of effort for seamless monitoring of RPN's and ROI heads' progress;
@@ -145,10 +145,10 @@ Below I put some screenshots of example visualizations (note, iterations number 
 
 # Future features
 
-- [ ] Run an experiment with increased CSD loss weight or training duration
+- [ ] Run an experiment with increased CSD loss weight and training duration
 - [ ] Test enabling mask RoI head and how CSD affects segmentation performance
 - [ ] Test performance on COCO and LVIS datasets
-- [ ] Add support for splitting a dataset into labeled and unlabeled parts (e.g. using only 1/5% of data as labeled data)
+- [x] Add support for splitting a dataset into labeled and unlabeled parts (e.g. using only 1/5% of data as labeled data)
 
 # Credits
 

@@ -1,7 +1,7 @@
 # CSD configuration for RFCN training on VOC07 + VOC12 as unlabeled data
 # See `config/config.py` for details on parameters
 
-_BASE_: "baseline_VOC07_R50_RFCN.yaml"
+_BASE_: "baseline_L=07_R50RFCN.yaml"
 MODEL:
   META_ARCHITECTURE: "CSDGeneralizedRCNN"
   ROI_HEADS:
@@ -16,9 +16,13 @@ SOLVER:
   CSD_WEIGHT_SCHEDULE_RAMP_T2: 8000
   CSD_WEIGHT_SCHEDULE_RAMP_T: 18000
 DATASETS:
+  MODE: "CROSS_DATASET"
   TRAIN_UNLABELED: ("voc_2012_trainval",)
 VIS_PERIOD: 300
 VIS_IMS_PER_GROUP: 3
 VIS_MAX_PREDS_PER_IM: 40
 VIS_TEST: True
-# SEED: 42  # Sets a random seed for data loaders; consider uncommenting for debugging
+
+# Sets a random seed for data loaders, consider uncommenting for debugging;
+# note: if `DATALOADER.RANDOM_SPLIT_SEED` is specified, it sets np.random.seed as well
+# SEED: 42  

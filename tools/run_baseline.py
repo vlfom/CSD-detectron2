@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # Copyright (c) Facebook, Inc. and its affiliates.
 """
+CSD NOTE: THIS FILE WAS MODIFIED ONLY TO SUPPORT TRAINING ON K% OF PROVIDED LABELED DATA
+AND WANDB LOGGING. RELEVANT LINES ARE COMMENTED WITH "CSD: ...". OTHER PARTS WERE LEFT UNCHANGED.
+
 A main training script.
 
 This scripts reads a given config file and runs the training or evaluation.
@@ -23,6 +26,7 @@ from collections import OrderedDict
 import detectron2.utils.comm as comm
 import torch
 import wandb
+from csd.data.build import build_detection_train_loader
 from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.config import get_cfg
 from detectron2.data import MetadataCatalog
@@ -110,6 +114,11 @@ class Trainer(DefaultTrainer):
         res = OrderedDict({k + "_TTA": v for k, v in res.items()})
         return res
 
+    @classmethod
+    def build_train_loader(cls, cfg):
+        """CSD: modify the default data loader to enable training on subset of the data."""
+        return build_detection_train_loader(cfg)
+
 
 def setup(args):
     """
@@ -117,8 +126,15 @@ def setup(args):
     """
     cfg = get_cfg()
 
-    cfg.USE_WANDB = False  # Add default wandb config values here (required by D2)
+    cfg.USE_WANDB = False  # CSD: add default wandb config values here (required by D2)
     cfg.WANDB_PROJECT_NAME = ""
+    # CSD: define placeholders (so D2 doesn't break)
+    cfg.DATASETS.MODE, cfg.DATASETS.SUP_PERCENT, cfg.DATASETS.RANDOM_SPLIT_SEED, cfg.DATASETS.RANDOM_SPLIT_PATH = (
+        None,
+        None,
+        None,
+        None,
+    )
 
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
@@ -130,7 +146,7 @@ def setup(args):
 def main(args):
     cfg = setup(args)
 
-    if comm.is_main_process() and cfg.USE_WANDB:  # Set up wandb (for tracking visualizations)
+    if comm.is_main_process() and cfg.USE_WANDB:  # CSD: set up wandb (for tracking visualizations)
         wandb.login()
         wandb.init(project=cfg.WANDB_PROJECT_NAME, config=cfg, sync_tensorboard=True)
 

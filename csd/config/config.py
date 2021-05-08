@@ -30,8 +30,25 @@ def add_csd_config(cfg):
     # Default datasets are VOC07+12 for training and VOC07 for testing
     # Note only VOC and COCO for object detection are currently supported
     # TODO: test COCO; add support for segmentation
+
+    # Defines if two separate datasets should be used as labeled and unlabeled data, or a single dataset must
+    # be split into labeled and unlabeled parts; must be equal to "CROSS_DATASET" or "RANDOM_SPLIT"
+    cfg.DATASETS.MODE = "CROSS_DATASET"
+
+    # (optional) path to the file that contains a pre-defined list of image indices to use as labeled data
+    # if specified, `SUP_PERCENT` and `RANDOM_SPLIT_SEED` are ignored; the file must contain a stringified
+    # version of plain Python list of integers, e.g.: [1, 5, 7, 2545]; see datasets/voc_splits/example_split.txt
+    cfg.DATASETS.RANDOM_SPLIT_PATH = None
+
+    # % of the images from the dataset to use as supervised data
+    cfg.DATASETS.SUP_PERCENT = None
+    # random seed to use for `np.random.seed` when generating the data split, it MUST be specified when in
+    # "RANDOM_SPLIT" mode and "RANDOM_SPLIT_PATH" is None, to make sure that each GPU uses the same data split
+    cfg.DATASETS.RANDOM_SPLIT_SEED = None
+
     cfg.DATASETS.TRAIN = ("voc_2007_trainval",)
     cfg.DATASETS.TRAIN_UNLABELED = ("voc_2012_trainval",)
+
     # Only VOC and COCO are currently supported for evaluation; also only a **single** evaluation dataset
     # is supported (for visualization reasons; if you turn it off, multiple datasets should work)
     cfg.DATASETS.TEST = ("voc_2007_test",)

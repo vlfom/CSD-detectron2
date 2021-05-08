@@ -1,0 +1,7 @@
+# Baseline configuration for RFCN training on 10% of VOC07
+
+_BASE_: "baseline_L=07_R50RFCN.yaml"
+DATASETS:
+  MODE: "RANDOM_SPLIT"
+  SUP_PERCENT: 10  # Use only 10% of images for supervision
+  RANDOM_SPLIT_SEED: 42

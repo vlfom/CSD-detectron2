@@ -1,43 +1,54 @@
+import ast
 import operator
 
+import numpy as np
 import torch
-from detectron2.data.build import get_detection_dataset_dicts, worker_init_reset_seed
-from detectron2.data.common import AspectRatioGroupedDataset, MapDataset
+from detectron2.data.build import (build_batch_data_loader,
+                                   get_detection_dataset_dicts,
+                                   worker_init_reset_seed)
+from detectron2.data.common import (AspectRatioGroupedDataset, DatasetFromList,
+                                    MapDataset)
 from detectron2.data.dataset_mapper import DatasetMapper
 from detectron2.data.samplers import TrainingSampler
 from detectron2.utils.comm import get_world_size
-from detectron2.utils.logger import setup_logger
+from detectron2.utils.logger import _log_api_usage, setup_logger
+from numpy.random import default_rng
 
 
 def build_ss_train_loader(cfg, mapper):
     """Builds a semi-supervised data loader that yields both labeled and unlabeled images.
+
+    Data can be loaded in two modes (defined in `cfg.DATASETS.MODE`):
+      - "CROSS_DATASET": labeled and unlabeled images come from two disparate datasets, e.g.
+      VOCtrain and VOCtest
+      - "RANDOM_SPLIT": labeled and unlabeled images come from the same dataset by splitting it
+      into the labeled and unlabeled parts
+    For more details see `build_ss_datasets()`.
 
     Each batch consists of `cfg.SOLVER.IMS_PER_BATCH_LABELED` labeled and
     `cfg.SOLVER.IMS_PER_BATCH_UNLABELED` unlabeled images, which can be modified
     in `csd/config/config.py` or in a custom `configs/*.yaml` config file
     supplied to your training script.
 
-    Note:
-        - here data is just loaded but the actual x-flips used in CSD happen
-        inside the trainer loop (which is not the most optimal way though)
-        - it's assumed that labeled and unlabeled datasets are two distinct
-        non-overlapping datasets that can be loaded separately.
+    The actual x-flips happen inside `AspectRatioGroupedSSDataset` that is instantiated by
+    `build_ss_batch_data_loader`
 
     The final object that is returned is a DataLoader with infinite sampling yielding
     a pair of batches with labeled and unlabeled images with the same aspect ratio within batch.
     Specifically, the DataLoader yields a tuple of lists:
     ([labeled_img, labeled_img_xflip], [unlabeled_im, unlabeled_img_xflip]).
     """
-    # TODO: add support for splitting images from the same dataset e.g. based on supervision %
 
-    # Wrapper for dataset loader to avoid duplicate code
-    load_data_dicts = lambda x: get_detection_dataset_dicts(
-        x, filter_empty=cfg.DATALOADER.FILTER_EMPTY_ANNOTATIONS, min_keypoints=0, proposal_files=None
+    # Load labeled and unlabeled dataset dicts (either use two separate ones or perform a random split)
+    labeled_dataset_dicts, unlabeled_dataset_dicts = build_ss_datasets(cfg)
+
+    # Log the datasets sizes
+    logger = setup_logger(name=__name__)
+    logger.debug(
+        "Number of images in the labeled and unlabeled datasets: {}, {}".format(
+            len(labeled_dataset_dicts), len(unlabeled_dataset_dicts)
+        )
     )
-
-    # Load metadata for labeled and unlabeled datasets
-    labeled_dataset_dicts = load_data_dicts(cfg.DATASETS.TRAIN)
-    unlabeled_dataset_dicts = load_data_dicts(cfg.DATASETS.TRAIN_UNLABELED)
 
     # Map metadata into actual objects (note: data augmentations also take place here)
     labeled_dataset = MapDataset(labeled_dataset_dicts, mapper)
@@ -58,6 +69,96 @@ def build_ss_train_loader(cfg, mapper):
         aspect_ratio_grouping=cfg.DATALOADER.ASPECT_RATIO_GROUPING,
         num_workers=cfg.DATALOADER.NUM_WORKERS,
     )
+
+
+def build_ss_datasets(cfg):
+    """Loads dataset(s), splits it into labeled and unlabeled part if needed, and returns both.
+
+
+    Data can be loaded in two modes (defined in `cfg.DATASETS.MODE`):
+      - "CROSS_DATASET": labeled and unlabeled images come from two disparate datasets, e.g.
+      VOCtrain and VOCtest
+      - "RANDOM_SPLIT": labeled and unlabeled images come from the same dataset by splitting it
+      into the labeled and unlabeled parts.
+
+    For "CROSS_DATASET" mode the function simply loads them separately and passes to `build_ss_batch_data_loader`.
+    For "RANDOM_SPLIT" mode the function first loads the dataset to split, and uses the following configuration
+    parameters to split it (in descdending priority, at least one must defined):
+      - option 1: `cfg.DATASETS.RANDOM_SPLIT_PATH` is defined; the function loads the provided file and uses
+      the indices inside to split the datasets into labeled and unlabeled subsets;
+      - option 2: `cfg.DATASETS.SUP_PERCENT` is defined; generates a random set of indices of the provided size
+      as the percentage of the total dataset size, and uses it to select the "labeled" portion of the dataset,
+      while other images are treated as "unlabeled";
+      - option 2 additional: `cfg.DATASETS.RANDOM_SPLIT_SEED` is **required** to set `np.random.seed`, it is
+      needed to make sure that each of GPUs generates exactly the same data split
+    """
+
+    # Wrapper for dataset loader to avoid duplicate code
+    load_data_dicts = lambda x: get_detection_dataset_dicts(
+        x, filter_empty=cfg.DATALOADER.FILTER_EMPTY_ANNOTATIONS, min_keypoints=0, proposal_files=None
+    )
+
+    # Load metadata for the labeled dataset
+    labeled_dataset_dicts = load_data_dicts(cfg.DATASETS.TRAIN)
+
+    if cfg.DATASETS.MODE == "CROSS_DATASET":
+        # Load metadata for the unlabeled dataset
+        unlabeled_dataset_dicts = load_data_dicts(cfg.DATASETS.TRAIN_UNLABELED)
+    elif cfg.DATASETS.MODE == "RANDOM_SPLIT":
+        labeled_dataset_dicts, unlabeled_dataset_dicts = split_labeled_dataset(labeled_dataset_dicts, cfg)
+    else:
+        raise NotImplementedError(f"{cfg.DATASETS.MODE} data mode is not supported.")
+
+    return labeled_dataset_dicts, unlabeled_dataset_dicts
+
+
+def split_labeled_dataset(dataset_dicts, cfg):
+    """Splits the labeled dataset into labeled and unlabeled images, and returns dicts for both.
+
+    Returns: tuple(list[dict], list[dict]).
+
+    See `build_ss_datasets()`'s docs for more details.
+    """
+
+    # Get the indices for labeled subset of images
+    cnt_total = len(dataset_dicts)
+    labeled_idx = get_dataset_labeled_indices(cnt_total, cfg)
+
+    # Return a tuple of lists with list[dict] for labeled and list[dict] for unlabeled splits
+    return (
+        [dataset_dicts[i] for i in labeled_idx],
+        [dataset_dicts[i] for i in range(cnt_total) if i not in labeled_idx],
+    )
+
+
+def get_dataset_labeled_indices(im_count, cfg):
+    """Loads or generates indices of labeled data for the provided number of images."""
+
+    # If a file path with a pre-defined split was provided, use it
+    if cfg.DATASETS.RANDOM_SPLIT_PATH is not None:
+        with open(cfg.DATASETS.RANDOM_SPLIT_PATH, "r") as f:  # Load indices of labeled images
+            arr_str = f.read()
+        labeled_idx = ast.literal_eval(arr_str)
+        assert len(labeled_idx) > 0, "The list of indices in the cfg.DATASETS.RANDOM_SPLIT_PATH is empty."
+    else:
+        assert (
+            cfg.DATASETS.SUP_PERCENT is not None
+        ), "% of data to use as labeled must be specified when `DATASETS.RANDOM_SPLIT_PATH` is not"
+        assert (
+            cfg.DATASETS.RANDOM_SPLIT_SEED is not None,
+        ), "Random seed must be specified to make sure that GPUs generate the same indices for the labeled subset."
+
+        np.random.seed(cfg.DATASETS.RANDOM_SPLIT_SEED)
+
+        cnt_labeled = int(im_count * cfg.DATASETS.SUP_PERCENT / 100)  # Number of labeled images
+        assert (
+            cnt_labeled >= 1
+        ), f"Supervision percent provided in cfg.DATASETS.SUP_PERCENT is too small: {cfg.DATASETS.SUP_PERCENT}"
+
+        # Generate indices of labeled images
+        labeled_idx = np.random.default_rng().choice(im_count, size=cnt_labeled, replace=False)
+
+    return labeled_idx
 
 
 def build_ss_batch_data_loader(
@@ -162,3 +263,63 @@ class AspectRatioGroupedSSDataset(AspectRatioGroupedDataset):
             yield (labeled_batch[:], unlabeled_batch[:])
             del labeled_batch[:]
             del unlabeled_batch[:]
+
+
+def build_detection_train_loader(cfg):
+    """Builds a data loader for the baseline trainer with support of training oon subset of labeled data only.
+
+    Most of code comes from `d2.data.build.build_detection_train_loader()`, see it for more details.
+    """
+
+    # CSD: check config is supported
+    assert cfg.DATALOADER.SAMPLER_TRAIN == "TrainingSampler", "Unsupported training sampler: {}".format(
+        cfg.DATALOADER.SAMPLER_TRAIN
+    )
+
+    # Original code
+    dataset = get_detection_dataset_dicts(
+        cfg.DATASETS.TRAIN,
+        filter_empty=cfg.DATALOADER.FILTER_EMPTY_ANNOTATIONS,
+        min_keypoints=cfg.MODEL.ROI_KEYPOINT_HEAD.MIN_KEYPOINTS_PER_IMAGE if cfg.MODEL.KEYPOINT_ON else 0,
+        proposal_files=cfg.DATASETS.PROPOSAL_FILES_TRAIN if cfg.MODEL.LOAD_PROPOSALS else None,
+    )
+
+    # CSD: subsample the dataset if needed
+    dataset = check_subsample_dataset(dataset, cfg)
+    logger = setup_logger(name=__name__)
+    logger.debug("Number of images in the dataset: {}".format(len(dataset)))
+    _log_api_usage("dataset." + cfg.DATASETS.TRAIN[0])
+
+    # Original code
+    mapper = DatasetMapper(cfg, True)
+
+    logger.info("Using training sampler {}".format("TrainingSampler"))
+    sampler = TrainingSampler(len(dataset))
+
+    dataset = DatasetFromList(dataset, copy=False)
+    dataset = MapDataset(dataset, mapper)
+    sampler = TrainingSampler(len(dataset))
+    assert isinstance(sampler, torch.utils.data.sampler.Sampler)
+
+    return build_batch_data_loader(
+        dataset,
+        sampler,
+        cfg.SOLVER.IMS_PER_BATCH,
+        aspect_ratio_grouping=cfg.DATALOADER.ASPECT_RATIO_GROUPING,
+        num_workers=cfg.DATALOADER.NUM_WORKERS,
+    )
+
+
+def check_subsample_dataset(dataset_dicts, cfg):
+    """Checks if dataset should be subsampled based on configuration, proceeds, and returns it back."""
+
+    assert (
+        cfg.DATASETS.MODE is None or cfg.DATASETS.MODE == "RANDOM_SPLIT"
+    ), f"{cfg.DATASETS.MODE} data mode is not supported."
+
+    if cfg.DATASETS.MODE == "RANDOM_SPLIT":  # Check if the dataset should be subsampled according to config
+        # Reuse CSD code, ignore the unlabeled split
+        labeled_dataset_dicts, _ = split_labeled_dataset(dataset_dicts, cfg)
+        return labeled_dataset_dicts
+
+    return dataset_dicts
