@@ -30,13 +30,18 @@ from csd.data.build import build_detection_train_loader
 from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.config import get_cfg
 from detectron2.data import MetadataCatalog
-from detectron2.engine import (DefaultTrainer, default_argument_parser,
-                               default_setup, hooks, launch)
-from detectron2.evaluation import (CityscapesInstanceEvaluator,
-                                   CityscapesSemSegEvaluator, COCOEvaluator,
-                                   COCOPanopticEvaluator, DatasetEvaluators,
-                                   LVISEvaluator, PascalVOCDetectionEvaluator,
-                                   SemSegEvaluator, verify_results)
+from detectron2.engine import DefaultTrainer, default_argument_parser, default_setup, hooks, launch
+from detectron2.evaluation import (
+    CityscapesInstanceEvaluator,
+    CityscapesSemSegEvaluator,
+    COCOEvaluator,
+    COCOPanopticEvaluator,
+    DatasetEvaluators,
+    LVISEvaluator,
+    PascalVOCDetectionEvaluator,
+    SemSegEvaluator,
+    verify_results,
+)
 from detectron2.modeling import GeneralizedRCNNWithTTA
 
 
@@ -124,7 +129,14 @@ def setup(args):
     cfg.USE_WANDB = False  # CSD: add default wandb config values here (required by D2)
     cfg.WANDB_PROJECT_NAME = ""
     # CSD: define placeholders (so D2 doesn't break)
-    cfg.DATASETS.MODE, cfg.DATASETS.SUP_PERCENT, cfg.DATASETS.RANDOM_SPLIT_SEED, cfg.DATASETS.RANDOM_SPLIT_PATH = (
+    (
+        cfg.DATASETS.MODE,
+        cfg.DATASETS.SPLIT_USE_PREDEFINED,
+        cfg.DATASETS.SPLIT_PATH,
+        cfg.DATASETS.SPLIT_SUP_PERCENT,
+        cfg.DATASETS.SPLIT_SEED,
+    ) = (
+        None,
         None,
         None,
         None,

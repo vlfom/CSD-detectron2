@@ -5,8 +5,11 @@ import detectron2.utils.comm as comm
 import numpy as np
 import torch
 from detectron2.data import MetadataCatalog, print_instances_class_histogram
-from detectron2.data.build import build_batch_data_loader, get_detection_dataset_dicts, worker_init_reset_seed
-from detectron2.data.common import AspectRatioGroupedDataset, DatasetFromList, MapDataset
+from detectron2.data.build import (build_batch_data_loader,
+                                   get_detection_dataset_dicts,
+                                   worker_init_reset_seed)
+from detectron2.data.common import (AspectRatioGroupedDataset, DatasetFromList,
+                                    MapDataset)
 from detectron2.data.dataset_mapper import DatasetMapper
 from detectron2.data.samplers import TrainingSampler
 from detectron2.utils.comm import get_world_size
@@ -32,9 +35,11 @@ def build_ss_train_loader(cfg, mapper):
     The actual x-flips happen inside `AspectRatioGroupedSSDataset` that is instantiated by
     `build_ss_batch_data_loader`
 
-    The final object that is returned is a DataLoader with infinite sampling yielding
-    a pair of batches with labeled and unlabeled images with the same aspect ratio within batch.
-    Specifically, the DataLoader yields a tuple of lists:
+    The returned tuple contains (1) a tuple of lists with dicts for labeled and unlabeled images
+    and (2) a DataLoader with infinite sampling yielding a pair of batches with labeled and unlabeled
+    images with the same aspect ratio within batch.
+
+    Specifically, the returned DataLoader yields a tuple of lists:
     ([labeled_img, labeled_img_xflip], [unlabeled_im, unlabeled_img_xflip]).
     """
 
@@ -66,7 +71,10 @@ def build_ss_train_loader(cfg, mapper):
     labeled_sampler = TrainingSampler(len(labeled_dataset))
     unlabeled_sampler = TrainingSampler(len(unlabeled_dataset))
 
-    return build_ss_batch_data_loader(  # Initialize actual dataloaders
+    return (
+        labeled_dataset_dicts,
+        unlabeled_dataset_dicts,
+    ), build_ss_batch_data_loader(  # Initialize actual dataloaders
         (labeled_dataset, unlabeled_dataset),
         (labeled_sampler, unlabeled_sampler),
         cfg.SOLVER.IMS_PER_BATCH_LABELED,
@@ -79,7 +87,6 @@ def build_ss_train_loader(cfg, mapper):
 def build_ss_datasets(cfg):
     """Loads dataset(s), splits it into labeled and unlabeled part if needed, and returns both.
 
-
     Data can be loaded in two modes (defined in `cfg.DATASETS.MODE`):
       - "CROSS_DATASET": labeled and unlabeled images come from two disparate datasets, e.g.
       VOCtrain and VOCtest
@@ -89,12 +96,12 @@ def build_ss_datasets(cfg):
     For "CROSS_DATASET" mode the function simply loads them separately and passes to `build_ss_batch_data_loader`.
     For "RANDOM_SPLIT" mode the function first loads the dataset to split, and uses the following configuration
     parameters to split it (in descdending priority, at least one must defined):
-      - option 1: `cfg.DATASETS.RANDOM_SPLIT_PATH` is defined; the function loads the provided file and uses
+      - option 1: `cfg.DATASETS.SPLIT_PATH` is defined; the function loads the provided file and uses
       the indices inside to split the datasets into labeled and unlabeled subsets;
-      - option 2: `cfg.DATASETS.SUP_PERCENT` is defined; generates a random set of indices of the provided size
+      - option 2: `cfg.DATASETS.SPLIT_SUP_PERCENT` is defined; generates a random set of indices of the provided size
       as the percentage of the total dataset size, and uses it to select the "labeled" portion of the dataset,
       while other images are treated as "unlabeled";
-      - option 2 additional: `cfg.DATASETS.RANDOM_SPLIT_SEED` is **required** to set `np.random.seed`, it is
+      - option 2 additional: `cfg.DATASETS.SPLIT_SEED` is **required** to set `np.random.seed`, it is
       needed to make sure that each of GPUs generates exactly the same data split
     """
 
@@ -120,49 +127,77 @@ def build_ss_datasets(cfg):
 def split_labeled_dataset(dataset_dicts, cfg):
     """Splits the labeled dataset into labeled and unlabeled images, and returns dicts for both.
 
+    For that, either loads images' ids from a file, or generates a random split and saves ids
+    of labeled subset to the file.
+    Whether to use a file is defined in `cfg.DATASETS.SPLIT_USE_PREDEFINED`.
+    The file path is defined in `cfg.DATASETS.SPLIT_PATH`.
+
     Returns: tuple(list[dict], list[dict]).
 
     See `build_ss_datasets()`'s docs for more details.
     """
 
-    # Get the indices for labeled subset of images
-    cnt_total = len(dataset_dicts)
-    labeled_idx = get_dataset_labeled_indices(cnt_total, cfg)
+    assert (
+        cfg.DATASETS.SPLIT_PATH is not None
+    ), "cfg.DATASETS.SPLIT_PATH must be defined when using the RANDOM_SPLIT dataset mode"
 
-    # Return a tuple of lists with list[dict] for labeled and list[dict] for unlabeled splits
-    return (
-        [dataset_dicts[i] for i in labeled_idx],
-        [dataset_dicts[i] for i in range(cnt_total) if i not in labeled_idx],
-    )
-
-
-def get_dataset_labeled_indices(im_count, cfg):
-    """Loads or generates indices of labeled data for the provided number of images."""
-
-    # If a file path with a pre-defined split was provided, use it
-    if cfg.DATASETS.RANDOM_SPLIT_PATH is not None:
-        with open(cfg.DATASETS.RANDOM_SPLIT_PATH, "r") as f:  # Load indices of labeled images
+    if cfg.DATASETS.SPLIT_USE_PREDEFINED:  # Load the pre-defined split from file
+        with open(cfg.DATASETS.SPLIT_PATH, "r") as f:  # Load ids of the labeled images
             arr_str = f.read()
-        labeled_idx = ast.literal_eval(arr_str)
-        assert len(labeled_idx) > 0, "The list of indices in the cfg.DATASETS.RANDOM_SPLIT_PATH is empty."
-    else:
+        labeled_ids = ast.literal_eval(arr_str)
+        labeled_ids_set = set(labeled_ids)
+        assert len(labeled_ids) > 0, "The list of ids in the cfg.DATASETS.SPLIT_PATH is empty."
+        assert len(labeled_ids) == len(
+            labeled_ids_set
+        ), "The list of ids in the cfg.DATASETS.SPLIT_PATH contains duplicates"
+
+        labeled_dicts, unlabeled_dicts = [], []  # Select the corresponding dicts
+        for d in dataset_dicts:
+            if d["image_id"] in labeled_ids_set:
+                labeled_dicts.append(d)
+            else:
+                unlabeled_dicts.append(d)
+
+        assert len(labeled_dicts) == len(
+            labeled_ids
+        ), "Some of the images in the cfg.DATASETS.SPLIT_PATH were not found in the dataset"
+    else:  # Generate a new split and dump it to file
         assert (
-            cfg.DATASETS.SUP_PERCENT is not None
-        ), "% of data to use as labeled must be specified when `DATASETS.RANDOM_SPLIT_PATH` is not"
+            cfg.DATASETS.SPLIT_SUP_PERCENT is not None
+        ), "% of data to use as labeled must be specified when `cfg.DATASETS.SPLIT_USE_PREDEFINED` is False"
         assert (
-            cfg.DATASETS.RANDOM_SPLIT_SEED is not None
+            cfg.DATASETS.SPLIT_SEED is not None
         ), "Random seed must be specified to make sure that GPUs generate the same indices for the labeled subset."
 
-        cnt_labeled = int(im_count * cfg.DATASETS.SUP_PERCENT / 100)  # Number of labeled images
-        assert (
-            cnt_labeled >= 1
-        ), f"Supervision percent provided in cfg.DATASETS.SUP_PERCENT is too small: {cfg.DATASETS.SUP_PERCENT}"
+        images_count = len(dataset_dicts)
+        cnt_labeled = int(images_count * cfg.DATASETS.SPLIT_SUP_PERCENT / 100)  # Calculate the size of labeled subset
+        assert cnt_labeled >= 1, (
+            f"Supervision percent provided in cfg.DATASETS.SPLIT_SUP_PERCENT of {cfg.DATASETS.SPLIT_SUP_PERCENT}% "
+            f"is too small for the size of data: {images_count}"
+        )
 
-        # Generate indices of labeled images
-        rand_g = np.random.default_rng(cfg.DATASETS.RANDOM_SPLIT_SEED)  # Set seed
-        labeled_idx = rand_g.choice(im_count, size=cnt_labeled, replace=False)
+        # Generate indices for labeled images
+        rand_g = np.random.default_rng(cfg.DATASETS.SPLIT_SEED)  # Set seed
+        labeled_idx = set(rand_g.choice(images_count, size=cnt_labeled, replace=False))
 
-    return labeled_idx
+        # Sort all images by ids; necessary for reproducibility
+        dataset_dicts = sorted(dataset_dicts, key=lambda x: x["image_id"])
+
+        labeled_ids = []  # Save the ids of the labeled split
+        labeled_dicts, unlabeled_dicts = [], []  # Split the dicts correspondingly
+        for i, d in enumerate(dataset_dicts):
+            if i in labeled_idx:
+                labeled_dicts.append(d)
+                labeled_ids.append(d["image_id"])
+            else:
+                unlabeled_dicts.append(d)
+
+        if comm.is_main_process():  # Save the new split to the provided file
+            with open(cfg.DATASETS.SPLIT_PATH, "w") as f:
+                f.write(str(labeled_ids))
+
+    # Return a tuple of lists with list[dict] for labeled and list[dict] for unlabeled splits
+    return labeled_dicts, unlabeled_dicts
 
 
 def build_ss_batch_data_loader(
@@ -209,7 +244,8 @@ def build_ss_batch_data_loader(
     unlabel_data_loader = create_data_loader(unlabel_dataset, unlabel_sampler)
 
     return AspectRatioGroupedSSDataset(
-        (label_data_loader, unlabel_data_loader), (batch_size_label, batch_size_unlabel),
+        (label_data_loader, unlabel_data_loader),
+        (batch_size_label, batch_size_unlabel),
     )
 
 

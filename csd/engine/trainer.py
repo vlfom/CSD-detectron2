@@ -10,12 +10,10 @@ from csd.checkpoint import WandbDetectionCheckpointer
 from csd.data import CSDDatasetMapper, TestDatasetMapper, build_ss_train_loader
 from csd.utils import WandbWriter
 from detectron2.data import MetadataCatalog, build_detection_test_loader
-from detectron2.engine import (DefaultTrainer, SimpleTrainer, TrainerBase,
-                               create_ddp_model)
+from detectron2.engine import DefaultTrainer, SimpleTrainer, TrainerBase, create_ddp_model
 from detectron2.evaluation import COCOEvaluator, PascalVOCDetectionEvaluator
 from detectron2.utils import comm
-from detectron2.utils.events import (CommonMetricPrinter, JSONWriter,
-                                     TensorboardXWriter, get_event_storage)
+from detectron2.utils.events import CommonMetricPrinter, JSONWriter, TensorboardXWriter, get_event_storage
 from detectron2.utils.logger import setup_logger
 
 
@@ -75,11 +73,19 @@ class CSDTrainerManager(DefaultTrainer):
 
         self.register_hooks(self.build_hooks())
 
-    @classmethod
-    def build_train_loader(cls, cfg):
+    def build_train_loader(self, cls, cfg):
         """Defines a data loader to use in the training loop."""
         dataset_mapper = CSDDatasetMapper(cfg, True)
-        return build_ss_train_loader(cfg, dataset_mapper)
+
+        # In addition to dataloader, fetch a list of labeled and unlabeled dicts
+        (labeled_dicts, unlabeled_dicts), train_loader = build_ss_train_loader(cfg, dataset_mapper)
+
+        # Store the filenames of images for future reference
+        labeled_filenames = [d["file_name"] for d in labeled_dicts]
+        unlabeled_filenames = [d["file_name"] for d in unlabeled_dicts]
+        self._data_filenames = (labeled_filenames, unlabeled_filenames)
+
+        return train_loader
 
     @classmethod
     def build_test_loader(cls, cfg, dataset_name):

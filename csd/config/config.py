@@ -31,27 +31,42 @@ def add_csd_config(cfg):
     # Note only VOC and COCO for object detection are currently supported
     # TODO: test COCO; add support for segmentation
 
-    # Defines if two separate datasets should be used as labeled and unlabeled data, or a single dataset must
-    # be split into labeled and unlabeled parts; must be equal to "CROSS_DATASET" or "RANDOM_SPLIT"
-    cfg.DATASETS.MODE = "CROSS_DATASET"
-
-    # (optional) path to the file that contains a pre-defined list of image indices to use as labeled data
-    # if specified, `SUP_PERCENT` and `RANDOM_SPLIT_SEED` are ignored; the file must contain a stringified
-    # version of plain Python list of integers, e.g.: [1, 5, 7, 2545]; see datasets/voc_splits/example_split.txt
-    cfg.DATASETS.RANDOM_SPLIT_PATH = None
-
-    # % of the images from the dataset to use as supervised data
-    cfg.DATASETS.SUP_PERCENT = None
-    # random seed to use for `np.random.seed` when generating the data split, it MUST be specified when in
-    # "RANDOM_SPLIT" mode and "RANDOM_SPLIT_PATH" is None, to make sure that each GPU uses the same data split
-    cfg.DATASETS.RANDOM_SPLIT_SEED = None
-
-    cfg.DATASETS.TRAIN = ("voc_2007_trainval",)
-    cfg.DATASETS.TRAIN_UNLABELED = ("voc_2012_trainval",)
+    cfg.DATASETS.TRAIN = ("voc_2007_trainval",)  # Note: only a single dataset is currently supported
+    cfg.DATASETS.TRAIN_UNLABELED = ("voc_2012_trainval",)  # Note: only a single dataset is currently supported
 
     # Only VOC and COCO are currently supported for evaluation; also only a **single** evaluation dataset
     # is supported (for visualization reasons; if you turn it off, multiple datasets should work)
     cfg.DATASETS.TEST = ("voc_2007_test",)
+
+    # Defines if two separate datasets should be used as labeled and unlabeled data, or a single dataset must
+    # be split into labeled and unlabeled parts; supported values: "CROSS_DATASET", "RANDOM_SPLIT"
+    cfg.DATASETS.MODE = "CROSS_DATASET"
+
+    # Required if `cfg.DATASETS.MODE` is "RANDOM_SPLIT".
+    # Defines whether to load the split from the file with the path provided, or to generate a new split:
+    # - if True, loads the split from `cfg.DATASETS.RANDOM_SPLIT_PATH`, see its comments below;
+    # - if False, uses `cfg.DATASETS.SUP_PERCENT` and `cfg.DATASETS.RANDOM_SPLIT_SEED` to generate
+    # a new split using `cfg.DATASETS.TRAIN` dataset
+    cfg.DATASETS.SPLIT_USE_PREDEFINED = False
+
+    # Required if `cfg.DATASETS.MODE` is "RANDOM_SPLIT".
+    # Defines path to the file that either (1) contains a pre-defined list of image indices to use as labeled data
+    # or (2) should be used to output the generated split.
+    # The file must contain a stringified Python list of strings of the corresponding dataset's images `image_id`s
+    # e.g.: ['000073', '000194', '000221']; see datasets/voc_splits/example_split.txt.
+    # `image_id` is an invariant across many D2-formatted datasets. See for example:
+    # `_cityscapes_files_to_dict()`, `load_voc_instances()`, `load_coco_json()`.
+    # TODO: add example
+    cfg.DATASETS.SPLIT_PATH = None
+
+    # (optional) % of the images from the dataset to use as supervised data;
+    # must be set if `cfg.DATASETS.SPLIT_USE_PREDEFINED` is True
+
+    cfg.DATASETS.SPLIT_SUP_PERCENT = None
+    # (optional) random seed to use for `np.random.seed` when generating the data split, it is necessary
+    # for reproducibility and to make sure that each GPU uses the same data split;
+    # must be set if `cfg.DATASETS.SPLIT_USE_PREDEFINED` is True
+    cfg.DATASETS.SPLIT_SEED = None
 
     ### Auxiliary
     # Note: visualizations work only with Wandb and when a **single** dataset is used, when using multiple datasets

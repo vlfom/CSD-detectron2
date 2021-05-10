@@ -4,8 +4,10 @@
 _BASE_: "csd_L=07_U=12_R50RFCN.yaml"
 DATASETS:
   MODE: "RANDOM_SPLIT"  # Split training dataset into labeled and unlabeled subsets
-  SUP_PERCENT: 5  # Use only 5% of images for supervision; rest as unlabeled
-  RANDOM_SPLIT_SEED: 42
+  SPLIT_USE_PREDEFINED: False  # Generate a new split
+  SPLIT_PATH: "datasets/voc_splits/5p_split.txt"  # Dump the split to this file
+  SPLIT_SUP_PERCENT: 5  # Use only 5% of images for supervision
+  SPLIT_SEED: 42
 SOLVER:
   CHECKPOINT_PERIOD: 500  # Dump the model weights more often
   CSD_WEIGHT_SCHEDULE_RAMP_T0: 1
