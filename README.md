@@ -15,14 +15,26 @@ This repository contains an unofficial implementation of the method described in
 
 # Overview
 
-The goal of this project was to verify the effectiveness of the CSD method for two-stage object detectors, implement an easily configurable solution, and to learn the D2 framework. After successful implementation, due to the lack of time, the scope of experiments was limited to a *quick, non-extensive* set on *some* datasets. Specifically, (as of now) only two experiments were run:
+The goal of this project was to verify the effectiveness of the CSD method for two-stage object detectors, implement an easily configurable solution, and to learn the D2 framework. After successful implementation, due to the lack of time, the scope of experiments was limited to a *quick, non-extensive* set on *some* datasets. Below I put a table that summarizes the current results. Note:
 
-1. a baseline that uses RFCN model, ResNet50 backbone, and was trained on VOC07 trainval;
-2. a CSD version with the same configuration, but CSD regularization enabled for both labeled and unlabeled datasets, where VOC12 trainval was used as unlabeled data.
+1. only RFCN models with ResNet50 backbone were used;
+2. when a CSD version is compared with a baseline it uses the same configuration, the only difference is the CSD regularization enabled.
 
-Both runs were tested on VOC07 test. To monitor the progress better I also implemented logging the results to Wandb including multiple images with both RPN and ROI predictions (see examples in [wandb](#wandb) below).
+All runs were tested on VOC07 test. To monitor the progress better, for CSD runs I logged multiple images with predictions from both RPN and ROI as the training progressed that you can check by following the wandb links below.
 
-**The detailed results are reported [below](#results) and in this [Wandb report](https://wandb.ai/vlfom/csd-detectron2/reports/RFCN-vs-CSD-RFCN-on-VOC07--Vmlldzo2NjAwNjI). Using CSD did not bring significant improvement with the configuration I went for, and one should experiment with a larger CSD weight or longer training.**
+| name           | labeled | unlabeled | csd_beta | iterations | result (mAP) | note | link to Wandb logs |
+|----------------|---------|-----------|------------|--------|--------|------|------|
+| baseline      | VOC07   | -             | - | 17K           | 46.6 %      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/b3te83b2?workspace=user-vlfom) |
+| csd  | VOC07   | VOC12         | 1.0 | 17K           | 46.4 %, **no improvement**      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/1oir7tpl?workspace=user-vlfom) |
+| baseline       | 5% VOC07   | -             | - |  6K           | 18.6 %      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/sjrlp2yb?workspace=user-vlfom) |
+| csd  | 5% VOC07   | 95% VOC07         | 0.5 | 6K           | 9.9 %, **large decrease** (interrupted)      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/1drhjo3q?workspace=user-vlfom) |
+| baseline       | 10% VOC07   | -             |- |  6K           | 25.7 %      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/19vxqer3?workspace=user-vlfom) |
+| csd  | 10% VOC07   | 90% VOC07         | 0.3 | 6K           | 20%, **decrease** (interrupted)      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/2h4xktv6?workspace=user-vlfom) |
+| baseline      | 20% VOC07   | -             |- |  6K           | 30.9 %      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/2ppsrsm6?workspace=user-vlfom), [wandb2](https://wandb.ai/vlfom/csd-detectron2/runs/3uoqxl98?workspace=user-vlfom) |
+| csd  | 20% VOC07   | 80% VOC07         | 0.3 | 6K           | 30.8%, **no improvement**     | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/2pugwdu2?workspace=user-vlfom), [wandb2](https://wandb.ai/vlfom/csd-detectron2/runs/3aktiypg?workspace=user-vlfom) |
+
+
+**Comparison result can be found in this [Wandb report](https://wandb.ai/vlfom/csd-detectron2/reports/RFCN-vs-CSD-RFCN-on-VOC07--Vmlldzo2NjAwNjI). Using CSD did not bring significant improvement with the configurations I went for.**
 
 In [Overview of the project structure](https://github.com/vlfom/CSD-detectron2#overview-of-the-project-structure) you can get an overview of the code. **The core CSD logic (e.g. to copy to your project) is in [`CSDGeneralizedRCNN`'s `forward()`](https://github.com/vlfom/CSD-detectron2/blob/master/csd/modeling/meta_arch/rcnn.py#L23) and [`CSDTrainer`'s `run_step()`](https://github.com/vlfom/CSD-detectron2/blob/master/csd/engine/trainer.py#L130)** (but keep in mind that they may depend on many other functions/classes).
 
