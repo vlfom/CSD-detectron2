@@ -6,5 +6,4 @@ wandb
 .vscode
 .pylintrc
 datasets/VOC*
-datasets/voc_splits/5p_split.txt
-datasets/voc_splits/10p_split.txt
+datasets/coco
