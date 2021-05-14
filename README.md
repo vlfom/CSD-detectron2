@@ -3,15 +3,23 @@
 This repository contains an unofficial implementation of the method described in CSD [paper by Jeong et al](https://papers.nips.cc/paper/2019/hash/d0f4dae80c3d0277922f8371d5827292-Abstract.html) based on [Detectron2](https://github.com/facebookresearch/detectron2) framework. It includes implementation for two-stage RFCN object detector only as single-stage detectors were not the focus of my research. It uses [W&B](https://wandb.ai/) to monitor the progress.
 
 # Table of Contents
-1. [Overview](#overview)
-2. [Installation](#installation)
-3. [Running scripts](#running-scripts)
-4. [Results](#results)
-5. [Additional notes](#additional-notes)
-   - [Overview of the project structure](https://github.com/vlfom/CSD-detectron2#overview-of-the-project-structure)
-   - [Wandb](#wandb)
-6. [Planned future features](#future-features)
-7. [Credits](#credits)
+- [CSD: Consistency-Based Semi-Supervised Learning for Object Detection implementation in Detectron2](#csd-consistency-based-semi-supervised-learning-for-object-detection-implementation-in-detectron2)
+- [Table of Contents](#table-of-contents)
+- [Overview](#overview)
+- [Installation](#installation)
+    - [Prerequisites](#prerequisites)
+    - [Installing Detectron2](#installing-detectron2)
+    - [Downloading data](#downloading-data)
+- [Running scripts](#running-scripts)
+    - [Baseline](#baseline)
+    - [CSD](#csd)
+    - [Evaluation](#evaluation)
+- [Results](#results)
+- [Additional notes](#additional-notes)
+    - [Overview of the project structure](#overview-of-the-project-structure)
+    - [Wandb](#wandb)
+- [Future features](#future-features)
+- [Credits](#credits)
 
 # Overview
 
@@ -24,9 +32,9 @@ All runs were tested on VOC07 test. To monitor the progress better, for CSD runs
 
 | name           | labeled | unlabeled | csd_beta | iterations | result (AP@50) | note | link to Wandb logs |
 |----------------|---------|-----------|------------|--------|--------|------|------|
-| baseline      | VOC07   | -             | - | 17K           | 76.2 %      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/b3te83b2?workspace=user-vlfom) |
-| csd  | VOC07   | VOC12         | 1.0 | 17K           | 75.8 %, **no improvement**      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/1oir7tpl?workspace=user-vlfom) |
-| baseline       | 5% VOC07   | -             | - |  6K           | 42.7 %      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/sjrlp2yb?workspace=user-vlfom) |
+| baseline      | VOC07   | -             | - | 17K           | 76.2 % (authors': 73.9 %)      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/b3te83b2?workspace=user-vlfom) |
+| csd  | VOC07   | VOC12         | 0.5 | 17K           | 75.8 %, **no improvement** (authors': 74.7 %)     | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/1oir7tpl?workspace=user-vlfom) |
+| baseline       | 5% VOC07   | -             | - |  6K           | 41.7 %      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/sjrlp2yb?workspace=user-vlfom) |
 | csd  | 5% VOC07   | 95% VOC07         | 0.5 | 6K           | 42.2 %, **slight improvement** (interrupted)      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/1drhjo3q?workspace=user-vlfom) |
 | baseline       | 10% VOC07   | -             |- |  6K           | 51.2 %      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/19vxqer3?workspace=user-vlfom) |
 | csd  | 10% VOC07   | 90% VOC07         | 0.3 | 6K           | 51.2%, **no improvement** (interrupted)      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/2h4xktv6?workspace=user-vlfom) |
