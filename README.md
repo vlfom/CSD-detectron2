@@ -34,15 +34,15 @@ All runs were tested on VOC07 test. To monitor the progress better, for CSD runs
 |----------------|---------|-----------|------------|--------|--------|------|------|
 | baseline      | VOC07   | -             | - | 17K           | 76.2 % (authors': 73.9 %)      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/b3te83b2?workspace=user-vlfom) |
 | csd  | VOC07   | VOC12         | 0.5 | 17K           | 75.8 %, **no improvement** (authors': 74.7 %)     | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/1oir7tpl?workspace=user-vlfom) |
-| baseline       | 5% VOC07   | -             | - |  6K           | 41.7 %      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/sjrlp2yb?workspace=user-vlfom) |
-| csd  | 5% VOC07   | 95% VOC07         | 0.5 | 6K           | 42.2 %, **slight improvement** (interrupted)      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/1drhjo3q?workspace=user-vlfom) |
-| baseline       | 10% VOC07   | -             |- |  6K           | 51.2 %      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/19vxqer3?workspace=user-vlfom) |
-| csd  | 10% VOC07   | 90% VOC07         | 0.3 | 6K           | 51.2%, **no improvement** (interrupted)      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/2h4xktv6?workspace=user-vlfom) |
-| baseline      | 20% VOC07   | -             |- |  6K           | 61.5 %      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/2ppsrsm6?workspace=user-vlfom), [wandb2](https://wandb.ai/vlfom/csd-detectron2/runs/3uoqxl98?workspace=user-vlfom) |
-| csd  | 20% VOC07   | 80% VOC07         | 0.3 | 6K           | 61.8%, **slight improvement**     | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/2pugwdu2?workspace=user-vlfom), [wandb2](https://wandb.ai/vlfom/csd-detectron2/runs/3aktiypg?workspace=user-vlfom) |
+| baseline       | 5% VOC07   | -             | - |  4K           | 41.7 %      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/sjrlp2yb?workspace=user-vlfom) |
+| csd  | 5% VOC07   | 95% VOC07         | 0.5 | 2K           | 42.2 %, **slight improvement**      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/1drhjo3q?workspace=user-vlfom) |
+| baseline       | 10% VOC07   | -             |- |  4K           | 51.2 %      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/19vxqer3?workspace=user-vlfom) |
+| csd  | 10% VOC07   | 90% VOC07         | 0.3 | 1.5K           | 51.2%, **no improvement**      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/2h4xktv6?workspace=user-vlfom) |
+| baseline      | 20% VOC07   | -             |- |  4.5K           | 61.5 %      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/2ppsrsm6?workspace=user-vlfom), [wandb2](https://wandb.ai/vlfom/csd-detectron2/runs/3uoqxl98?workspace=user-vlfom) |
+| csd  | 20% VOC07   | 80% VOC07         | 0.3 | 3K           | 62.3%, **slight improvement**     | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/2pugwdu2?workspace=user-vlfom), [wandb2](https://wandb.ai/vlfom/csd-detectron2/runs/3aktiypg?workspace=user-vlfom) |
 
 
-**Comparison result can be found in this [Wandb report](https://wandb.ai/vlfom/csd-detectron2/reports/RFCN-vs-CSD-RFCN-on-VOC07--Vmlldzo2NjAwNjI). Using CSD did not bring significant improvement with the configurations I went for.**
+**Comparison result can be found in this [Wandb report](https://wandb.ai/vlfom/csd-detectron2/reports/RFCN-vs-CSD-RFCN-on-VOC07--Vmlldzo2NjAwNjI). Using CSD did not bring significant improvements with the configurations I went for, however, on low-data scenarios it improved performance by 0-0.8%.**
 
 In [Overview of the project structure](https://github.com/vlfom/CSD-detectron2#overview-of-the-project-structure) you can get an overview of the code. **The core CSD logic (e.g. to copy to your project) is in [`CSDGeneralizedRCNN`'s `forward()`](https://github.com/vlfom/CSD-detectron2/blob/master/csd/modeling/meta_arch/rcnn.py#L23) and [`CSDTrainer`'s `run_step()`](https://github.com/vlfom/CSD-detectron2/blob/master/csd/engine/trainer.py#L130)** (but keep in mind that they may depend on many other functions/classes).
 
