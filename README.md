@@ -22,7 +22,7 @@ The goal of this project was to verify the effectiveness of the CSD method for t
 
 All runs were tested on VOC07 test. To monitor the progress better, for CSD runs I logged multiple images with predictions from both RPN and ROI as the training progressed that you can check by following the wandb links below.
 
-| name           | labeled | unlabeled | csd_beta | iterations | result (mAP) | note | link to Wandb logs |
+| name           | labeled | unlabeled | csd_beta | iterations | result (AP@50) | note | link to Wandb logs |
 |----------------|---------|-----------|------------|--------|--------|------|------|
 | baseline      | VOC07   | -             | - | 17K           | 76.2 %      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/b3te83b2?workspace=user-vlfom) |
 | csd  | VOC07   | VOC12         | 1.0 | 17K           | 75.8 %, **no improvement**      | batch=16 | [wandb](https://wandb.ai/vlfom/csd-detectron2/runs/1oir7tpl?workspace=user-vlfom) |
