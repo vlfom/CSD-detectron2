@@ -32,7 +32,9 @@ def add_csd_config(cfg):
     # TODO: test COCO; add support for segmentation
 
     cfg.DATASETS.TRAIN = ("voc_2007_trainval",)  # Note: only a single dataset is currently supported
-    cfg.DATASETS.TRAIN_UNLABELED = ("voc_2012_trainval",)  # Note: only a single dataset is currently supported
+    # Note: only a single dataset is currently supported; also note: this is not used when `cfg.DATASETS.MODE`
+    # is "RANDOM_SPLIT"
+    cfg.DATASETS.TRAIN_UNLABELED = ("voc_2012_trainval",)
 
     # Only VOC and COCO are currently supported for evaluation; also only a **single** evaluation dataset
     # is supported (for visualization reasons; if you turn it off, multiple datasets should work)

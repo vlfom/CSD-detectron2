@@ -322,8 +322,8 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
             # Note: the paper mentions JSD loss here, however, in the implementation authors mistakenly used
             # a sum of KL losses divided by two, which we reproduce here
             csd_class_loss = (
-                csd_class_criterion(class_scores[mask], class_scores_flip[mask]).sum(-1).mean()
-                + csd_class_criterion(class_scores_flip[mask], class_scores[mask]).sum(-1).mean()
+                csd_class_criterion(class_scores[mask], class_scores_flip[mask])
+                + csd_class_criterion(class_scores_flip[mask], class_scores[mask])
             ) / 2
 
             ### Calculate CSD localization losss
@@ -332,7 +332,7 @@ class CSDGeneralizedRCNN(GeneralizedRCNN):
 
             # Change the sign of predicted dx for flipped instances for simplified
             # loss calculation (see https://github.com/soo89/CSD-SSD/issues/3)
-            deltas_flip[:, 0] = -deltas_flip[:, 0]
+            deltas_flip[:, 0::4] = -deltas_flip[:, 0::4]
 
             # Calculate as MSE
             csd_loc_loss = torch.mean(torch.pow(deltas[mask] - deltas_flip[mask], 2))

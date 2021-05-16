@@ -305,7 +305,7 @@ class AspectRatioGroupedSSDataset(AspectRatioGroupedDataset):
 
 
 def build_detection_train_loader(cfg):
-    """Builds a data loader for the baseline trainer with support of training oon subset of labeled data only.
+    """Builds a data loader for the baseline trainer with support of training on the subset of labeled data only.
 
     Most of code comes from `d2.data.build.build_detection_train_loader()`, see it for more details.
     """
