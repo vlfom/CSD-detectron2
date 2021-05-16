@@ -1,13 +1,14 @@
-# Baseline configuration for RFCN training on 5% of VOC07
+# Baseline configuration for RFCN training on 5% of COCO
 
-_BASE_: "baseline_L=07_R50RFCN.yaml"
+_BASE_: "baseline_L=all_R50RFCN.yaml"
 DATASETS:
   MODE: "RANDOM_SPLIT"
   SPLIT_USE_PREDEFINED: False  # Generate a new split
-  SPLIT_PATH: "datasets/voc_splits/5p_split_seed42.txt"  # Dump the split to this file
+  SPLIT_PATH: "datasets/coco_splits/5p_split_seed42.txt"  # Dump the split to this file
   SPLIT_SUP_PERCENT: 5  # Use only 5% of images for supervision
   SPLIT_SEED: 42
 SOLVER:
+  IMS_PER_BATCH: 8
   CHECKPOINT_PERIOD: 500  # Dump the model weights more often
 TEST:
   EVAL_PERIOD: 500  # Evaluate more often

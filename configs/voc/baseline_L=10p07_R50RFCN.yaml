@@ -4,7 +4,7 @@ _BASE_: "baseline_L=07_R50RFCN.yaml"
 DATASETS:
   MODE: "RANDOM_SPLIT"
   SPLIT_USE_PREDEFINED: False  # Generate a new split
-  SPLIT_PATH: "datasets/voc_splits/10p_split.txt"  # Dump the split to this file
+  SPLIT_PATH: "datasets/voc_splits/10p_split_seed42.txt"  # Dump the split to this file
   SPLIT_SUP_PERCENT: 10  # Use only 10% of images for supervision
   SPLIT_SEED: 42
 SOLVER:

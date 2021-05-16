@@ -1,8 +1,6 @@
-# Baseline configuration for RFCN training on VOC07
+# Baseline configuration for RFCN with ResNet50 training on COCO
 
-_BASE_: "default_voc_R50RFCN.yaml"
-DATASETS:
-  TRAIN: ('voc_2007_trainval',)  # Train on VOC07 only
+_BASE_: "default_coco_R50RFCN.yaml"
 SOLVER:
   CHECKPOINT_PERIOD: 2000  # Dump the model weights more often
 TEST:
