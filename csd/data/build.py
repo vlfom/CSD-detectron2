@@ -141,6 +141,7 @@ def split_labeled_dataset(dataset_dicts, cfg):
         cfg.DATASETS.SPLIT_PATH is not None
     ), "cfg.DATASETS.SPLIT_PATH must be defined when using the RANDOM_SPLIT dataset mode"
 
+    labeled_dicts, unlabeled_dicts = [], []  # Select the corresponding dicts
     if cfg.DATASETS.SPLIT_USE_PREDEFINED:  # Load the pre-defined split from file
         with open(cfg.DATASETS.SPLIT_PATH, "r") as f:  # Load ids of the labeled images
             arr_str = f.read()
@@ -151,7 +152,6 @@ def split_labeled_dataset(dataset_dicts, cfg):
             labeled_ids_set
         ), "The list of ids in the cfg.DATASETS.SPLIT_PATH contains duplicates"
 
-        labeled_dicts, unlabeled_dicts = [], []  # Select the corresponding dicts
         for d in dataset_dicts:
             if d["image_id"] in labeled_ids_set:
                 labeled_dicts.append(d)
@@ -184,7 +184,6 @@ def split_labeled_dataset(dataset_dicts, cfg):
         dataset_dicts = sorted(dataset_dicts, key=lambda x: x["image_id"])
 
         labeled_ids = []  # Save the ids of the labeled split
-        labeled_dicts, unlabeled_dicts = [], []  # Split the dicts correspondingly
         for i, d in enumerate(dataset_dicts):
             if i in labeled_idx:
                 labeled_dicts.append(d)

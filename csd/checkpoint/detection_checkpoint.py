@@ -19,8 +19,7 @@ class WandbDetectionCheckpointer(DetectionCheckpointer):
         if not self.save_dir or not self.save_to_disk:
             return
 
-        data = {}
-        data["model"] = self.model.state_dict()
+        data = {'model': self.model.state_dict()}
         for key, obj in self.checkpointables.items():
             data[key] = obj.state_dict()
         data.update(kwargs)
